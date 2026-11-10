@@ -78,6 +78,7 @@ body.touch #slots{display:none}
 #dmgdir{position:absolute;left:50%;top:50%;width:220px;height:220px;margin:-110px;border-radius:50%;opacity:0;
   background:conic-gradient(from -22deg,rgba(220,50,40,.9) 0 44deg,transparent 44deg);
   -webkit-mask:radial-gradient(circle,transparent 96px,#000 97px);mask:radial-gradient(circle,transparent 96px,#000 97px)}
+#nums i{position:absolute;font-style:normal;font-family:var(--display);font-weight:600;font-size:18px;transform:translate(-50%,-50%);white-space:nowrap}
 #ann{position:absolute;left:0;right:0;top:24%;text-align:center;opacity:0;padding:0 16px}
 #ann b{display:block;font-family:var(--display);font-weight:600;font-size:clamp(30px,7vw,64px);text-transform:uppercase;letter-spacing:.04em}
 #ann span{font-size:17px;font-weight:700;color:var(--c,var(--amber))}
@@ -166,6 +167,7 @@ input[type=range]{width:100%;accent-color:var(--amber);touch-action:pan-x}
     <span class="big" id="ammo"></span>
     <div id="slots"></div>
   </div>
+  <div id="nums"></div>
   <div id="ann"><b></b><span></span></div>
   <div id="toast"></div>
 </div>
@@ -186,6 +188,14 @@ input[type=range]{width:100%;accent-color:var(--amber);touch-action:pan-x}
     <span id="rank" class="lab"></span>
     <div id="tabs"></div>
     <div id="tab"></div>
+  </div>
+</div>
+
+<div class="overlay" id="perk" hidden>
+  <div class="panel">
+    <h2>Выбери усиление</h2>
+    <p class="sub">Действует до конца вылазки. Клавиши 1, 2, 3 или клик.</p>
+    <div class="grid" id="perkCards" style="width:100%;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))"></div>
   </div>
 </div>
 
@@ -379,6 +389,8 @@ const MAPS = {
 for (const k in MAPS) if (MAPS[k].rows.length !== 25 || MAPS[k].rows.some(r => r.length !== 25)) throw new Error('bad map ' + k);
 if (!MAPS[save.map]) save.map = 'a';
 if (!save.set || !(save.set.fov >= 60)) save.set = { sens: 1, vol: 1, fov: 78 };
+if (!['low', 'mid', 'high'].includes(save.set.q)) save.set.q = 'mid';
+if (!save.st) save.st = {};
 let MAP = MAPS[save.map].rows;
 const MW = MAP[0].length, MH = MAP.length;
 const hCell = (cx, cz) => (cx < 0 || cz < 0 || cx >= MW || cz >= MH) ? WALLH : MAP[cz][cx] === '#' ? WALLH : MAP[cz][cx] === 'c' ? CRH : 0;
@@ -498,7 +510,7 @@ const camera = new T.PerspectiveCamera(78, 1, .08, 120); camera.rotation.order =
 const vmCam = new T.PerspectiveCamera(52, 1, .01, 10);
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  renderer.setPixelRatio(save.set.q === 'low' ? .7 : Math.min(window.devicePixelRatio || 1, save.set.q === 'high' ? 2 : 1.25));
   renderer.setSize(w, h, false);
   camera.aspect = vmCam.aspect = w / h; camera.updateProjectionMatrix(); vmCam.updateProjectionMatrix();
 }
@@ -873,7 +885,7 @@ function reset() {
   applyUpgrades();
   M = MODE[save.mode] || MODE.survival; D = DIFF[save.diff] || DIFF.normal; buildLevel(); placeBarrels(); const st0 = MAPS[save.map].start;
   const e = save.eq; ORDER = ['knife', e.side, e.a, e.b, 'grenade', 'medkit'];
-  p = { x: (st0[0] + .5) * CELL, z: (st0[1] + .5) * CELL, crouch: 0, streak: 0, streakT: 0, y: 0, vy: 0, vx: 0, vz: 0, yaw: 0, pitch: 0, hp: 100, armor: save.diff === 'easy' ? 50 : 0, r: .42,
+  p = { x: (st0[0] + .5) * CELL, z: (st0[1] + .5) * CELL, crouch: 0, streak: 0, streakT: 0, heads: 0, pk: { dmg: 1, rel: 1, sp: 1, take: 1, head: 1.8, leech: 0, heal: 50, safe: false, got: [] }, y: 0, vy: 0, vx: 0, vz: 0, yaw: 0, pitch: 0, hp: 100, armor: save.diff === 'easy' ? 50 : 0, r: .42,
     cur: e.a || e.side, next: null, prev: e.side, raise: 0, cd: 0, rel: 0, relT: 0, quick: null, using: 0, aim: 0,
     mag: {}, res: {}, grenades: 3, medkits: 2,
     kick: 0, camKick: 0, bob: 0, swayX: 0, swayY: 0, swing: 0, land: 0, flash: 0, hurtT: 0, healT: 0, dmgA: 0, dmgT: 0, hitT: 0, onGround: true, spreadK: 0 };
@@ -931,6 +943,7 @@ addEventListener('keydown', e => {
     if (k === 'Space') { jump(); e.preventDefault(); }
     if (k === 'KeyX') crouchTog = !crouchTog;
     if (k === 'KeyP' || (k === 'Escape' && !locked)) { if (locked) document.exitPointerLock(); else setPause(true); }
+  } else if (state === 'perk') { const n = ['Digit1', 'Digit2', 'Digit3'].indexOf(k), b = n >= 0 && $('perkCards').children[n]; if (b) b.click();
   } else if (state === 'pause') { if (k === 'KeyP' || k === 'Enter') setPause(false); }
   if (k === 'KeyM') toggleMute();
   if (k.startsWith('Arrow') || k === 'Tab') e.preventDefault();
@@ -1018,6 +1031,11 @@ function renderLobby() {
     slider('Чувствительность мыши', 'sens', .2, 3, .05, v => v.toFixed(2));
     slider('Громкость', 'vol', 0, 1.5, .05, v => Math.round(v * 100) + '%', () => { initAudio(); if (master) master.gain.value = .34 * save.set.vol; SFX.hit(); });
     slider('Угол обзора', 'fov', 60, 100, 1, v => v + '°');
+    { const qs = sec('Качество графики'), qg = el('div', 'row'); qg.style.justifyContent = 'flex-start'; qs.appendChild(qg);
+      for (const [id, name] of [['low', 'Низкое'], ['mid', 'Среднее'], ['high', 'Высокое']]) { const qb = el('button', save.set.q === id ? 'sel' : '', name); qb.type = 'button'; qb.addEventListener('click', () => { save.set.q = id; persist(); resize(); renderLobby(); }); qg.appendChild(qb); }
+      qs.appendChild(el('p', 'note', 'Если игра тормозит, поставь низкое: картинка станет мягче, зато кадров больше.'));
+      const ss = sec('Статистика'), sg = el('div', 'stats'), t = save.st; sg.style.gridTemplateColumns = 'repeat(3,1fr)'; ss.appendChild(sg);
+      for (const [n, v] of [['Вылазок', t.games || 0], ['Побед', t.wins || 0], ['Лучшая волна', t.wave || 0], ['Уничтожено', t.kills || 0], ['В голову', t.heads || 0], ['Минут в бою', Math.round((t.time || 0) / 60)]]) { const d = el('div'); d.appendChild(el('span', '', n)); d.appendChild(el('b', '', String(v))); sg.appendChild(d); } }
     const s = sec('Экран'), b = el('button', '', document.fullscreenElement ? 'Выйти из полного экрана' : 'На весь экран'); b.type = 'button';
     b.addEventListener('click', () => { try { const r = document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); if (r && r.then) r.then(renderLobby, () => {}); } catch (e) {} }); s.appendChild(b);
     const s2 = sec('Прогресс'), rb = el('button', '', 'Сбросить прогресс'); rb.type = 'button'; let armed = false;
@@ -1037,7 +1055,7 @@ function renderLobby() {
 }
 
 /* ───────────── flow ───────────── */
-function show(id) { for (const o of ['lobby', 'pause', 'over']) $(o).hidden = o !== id; $('hud').hidden = state === 'menu'; $('touch').hidden = !(touchMode && state === 'play'); }
+function show(id) { for (const o of ['lobby', 'pause', 'over', 'perk']) $(o).hidden = o !== id; $('hud').hidden = state === 'menu'; $('touch').hidden = !(touchMode && state === 'play'); }
 function toLobby() { reset(); state = 'menu'; renderLobby(); show('lobby'); }
 function startGame() { initAudio(); reset(); state = 'play'; show(null); $('modelab').textContent = M.name + ' · ' + D.name; requestLock(); nextWave(); }
 function setPause(on) {
@@ -1050,6 +1068,35 @@ $('btnResume').addEventListener('click', () => setPause(false)); $('btnMute').ad
 $('btnQuit').addEventListener('click', () => endGame('quit'));
 
 let annT = 0, toastT = 0;
+const PERKS = [
+  ['Усиленные патроны', '+15% урона всему оружию', k => { k.dmg *= 1.15; }, true],
+  ['Быстрые руки', 'Перезарядка на 25% быстрее', k => { k.rel *= .75; }],
+  ['Лёгкие ботинки', '+10% к скорости', k => { k.sp *= 1.1; }],
+  ['Плотная броня', 'Получаешь на 15% меньше урона', k => { k.take *= .85; }, true],
+  ['Меткий глаз', 'Попадание в голову бьёт в 2,4 раза сильнее', k => { k.head = 2.4; }],
+  ['Трофейщик', '+4 здоровья за каждого уничтоженного врага', k => { k.leech += 4; }],
+  ['Полевой медик', 'Шприц-тюбик лечит на 80, +1 в запас', k => { k.heal = 80; p.medkits = Math.min(4, p.medkits + 1); }],
+  ['Сапёр', 'Свои взрывы и бочки тебя не ранят, +2 гранаты', k => { k.safe = true; p.grenades = Math.min(6, p.grenades + 2); }],
+  ['Бронежилет', 'Броня восстановлена до 100', () => { p.armor = 100; }, true],
+  ['Подсумок', 'Запас патронов всех стволов пополнен полностью', () => { for (const id in p.res) p.res[id] = GUN[id].res * 2; }, true]
+];
+function offerPerks() {
+  const opts = PERKS.filter(q => q[3] || !p.pk.got.includes(q[0])).sort(() => Math.random() - .5).slice(0, 3), box = $('perkCards'); box.textContent = '';
+  opts.forEach((q, i) => card(box, (i + 1) + ' · ' + q[0], q[1], () => { if (state !== 'perk') return; q[2](p.pk); p.pk.got.push(q[0]); SFX.buy(); toast(q[0]); state = 'play'; show(null); requestLock(); last = performance.now(); hudKey = ''; slotsKey = ''; }));
+  state = 'perk'; fireDown = false; aimHeld = false; show('perk'); if (document.exitPointerLock) document.exitPointerLock();
+}
+const nums = []; const v3 = new T.Vector3();
+function numAdd(e, dmg, head, x, y, z) {
+  if (e.num && e.num.t < .12) { e.num.v += dmg; e.num.head = e.num.head || head; e.num.t = 0; return; }
+  let n = nums.find(q => q.t > .8); if (!n) { if (nums.length >= 14) return; n = { el: document.createElement('i') }; $('nums').appendChild(n.el); nums.push(n); }
+  n.v = dmg; n.head = head; n.x = x + rand(-.2, .2); n.y = y + .3; n.z = z + rand(-.2, .2); n.t = 0; e.num = n;
+}
+function numDraw(dt) {
+  for (const n of nums) { n.t += dt; if (n.t > .8) { n.el.style.display = 'none'; continue; }
+    v3.set(n.x, n.y + n.t * 1.3, n.z).project(camera); if (v3.z > 1) { n.el.style.display = 'none'; continue; }
+    n.el.style.display = ''; n.el.textContent = Math.round(n.v); n.el.style.color = n.head ? 'var(--amber)' : 'var(--ink)';
+    n.el.style.left = (v3.x * .5 + .5) * innerWidth + 'px'; n.el.style.top = (-v3.y * .5 + .5) * innerHeight + 'px'; n.el.style.opacity = clamp((.8 - n.t) * 3, 0, 1); }
+}
 function announce(big, sub, col = '#e0a030') { const a = $('ann'); a.style.setProperty('--c', col); a.firstElementChild.textContent = big; a.lastElementChild.textContent = sub; annT = 2.8; }
 function toast(t) { $('toast').textContent = t; toastT = 1.8; }
 function typeFor(w) { const r = Math.random(); return w >= 4 && r < Math.min(.25, .06 + w * .012) ? 'brute' : w >= 3 && r > .86 ? 'mine' : w >= 2 && r < .4 ? 'drone' : 'hound'; }
@@ -1067,6 +1114,7 @@ function endGame(why) {
   if (state === 'dead') return;
   const win = why === 'win'; state = 'dead'; fireDown = false; aimHeld = false; win ? SFX.win() : why === 'dead' ? SFX.dead() : 0;
   let cr = M.passive ? 0 : Math.round(score / 8 * D.cr); if (win) cr += Math.round(500 * D.cr);
+  if (!M.passive) { const t = save.st; t.games = (t.games || 0) + 1; t.wins = (t.wins || 0) + (win ? 1 : 0); t.kills = (t.kills || 0) + kills; t.heads = (t.heads || 0) + p.heads; t.time = (t.time || 0) + Math.round(time); t.wave = Math.max(t.wave || 0, wave); t.earned = (t.earned || 0) + cr; }
   save.cr += cr; if (!M.passive) save.xp = (save.xp || 0) + score; const rec = !M.passive && score > (save.best[save.mode] || 0); if (rec) save.best[save.mode] = score; persist();
   $('overTitle').textContent = win ? 'Победа' : why === 'quit' ? 'Вылазка прервана' : 'Ты погиб';
   $('overSub').textContent = (win ? (M.time ? 'Эвакуация прибыла. ' : 'Сектор зачищен. ') : '') + (rec ? 'Новый рекорд режима. ' : '') + (M.passive ? 'На полигоне кредиты не начисляются.' : 'Кредиты можно потратить в магазине.');
@@ -1091,7 +1139,7 @@ function quickUse(id) {
 function reload() {
   const w = GUN[p.cur]; if (!w.mag || p.rel > 0 || p.next) return;
   if (p.mag[p.cur] >= w.mag || p.res[p.cur] <= 0) return;
-  p.rel = p.relT = w.rel; SFX.reload();
+  p.rel = p.relT = w.rel * p.pk.rel; SFX.reload();
 }
 function jump() { crouchTog = false; if (p.onGround && p.crouch < .5) { p.vy = 6.8; p.onGround = false; SFX.jump(); } }
 function aimDir(spread) {
@@ -1140,7 +1188,7 @@ function use() {
   }
   if (id === 'medkit') {
     if (p.medkits <= 0 || p.hp >= 100) { if (p.hp >= 100) toast('Здоровье полное'); return false; }
-    p.medkits--; p.cd = w.cd; p.using = 1; SFX.heal(); p.hp = Math.min(100, p.hp + 50); p.healT = 1;
+    p.medkits--; p.cd = w.cd; p.using = 1; SFX.heal(); p.hp = Math.min(100, p.hp + p.pk.heal); p.healT = 1;
     return true;
   }
   if (p.mag[id] <= 0) { if (p.res[id] > 0) reload(); else { SFX.empty(); p.cd = .25; } return false; }
@@ -1159,7 +1207,7 @@ function use() {
     for (let n = 0; n < (w.scope ? 4 : 1); n++) {
       const h = rayEnemy(p.x, oy, p.z, dx, dy, dz, tw, skip); if (!h.e) break;
       const fall = id === 'shotgun' ? clamp(1.25 - h.t / 22, .35, 1) : id === 'smg' ? clamp(1.2 - h.t / 45, .5, 1) : 1;
-      hurtEnemy(h.e, w.dmg * fall * (h.head ? 1.8 : 1), dx, dz, h.head, p.x + dx * h.t, oy + dy * h.t, p.z + dz * h.t); hitAny = true; headAny = headAny || h.head; skip.push(h.e); if (!w.scope) endT = h.t;
+      hurtEnemy(h.e, w.dmg * p.pk.dmg * fall * (h.head ? p.pk.head : 1), dx, dz, h.head, p.x + dx * h.t, oy + dy * h.t, p.z + dz * h.t); hitAny = true; headAny = headAny || h.head; skip.push(h.e); if (!w.scope) endT = h.t;
     }
     const hb = rayEnemy(p.x, oy, p.z, dx, dy, dz, endT, null, barrels); if (hb.e) { if (!w.scope) endT = hb.t; hurtBarrel(hb.e, w.dmg); }
     const hx = p.x + dx * endT, hy = oy + dy * endT, hz = p.z + dz * endT;
@@ -1173,7 +1221,7 @@ const shotGeo = rboxG(.08, .08, .34, .03), shotMat = flatc(0xffb060);
 
 function hurtPlayer(d, sx, sz, raw) {
   if (state !== 'play' || M.passive) return;
-  if (!raw) d *= D.dmg;
+  if (!raw) d *= D.dmg; d *= p.pk.take;
   if (p.armor > 0) { const a = Math.min(p.armor, d * .6); p.armor -= a; d -= a; }
   p.hp -= d; p.hurtT = Math.min(1, p.hurtT + .25 + d / 40); shake += .3; SFX.hurt();
   if (sx !== undefined) { const dx = sx - p.x, dz = sz - p.z; p.dmgA = Math.atan2(dx * Math.cos(p.yaw) - dz * Math.sin(p.yaw), -dx * Math.sin(p.yaw) - dz * Math.cos(p.yaw)); p.dmgT = 1; }
@@ -1211,7 +1259,7 @@ function eshotDir(x, y, z, dx, dy, dz, sp, dmg) {
 }
 function hurtEnemy(e, dmg, nx, nz, head, hx, hy, hz) {
   if (e.dead) return;
-  e.hp -= dmg; e.flash = .08; e.seen = true; if (head) conAdd('head');
+  e.hp -= dmg; e.flash = .08; e.seen = true; if (head) { conAdd('head'); p.heads++; } numAdd(e, dmg, head, hx, hy, hz);
   const kb = e.type === 'boss' ? 0 : e.type === 'brute' ? 1 : 4; e.kx += nx * kb; e.kz += nz * kb;
   burst(hx, hy, hz, head ? 0xffd070 : 0xffb050, head ? 8 : 4, 4, .3, .05); burst(hx, hy, hz, 0x3a3a38, 2, 2.5, .5, .07);
   if (e.hp <= 0) killEnemy(e);
@@ -1220,7 +1268,7 @@ function killEnemy(e) {
   e.dead = true; kills++; const d = ET[e.type], lv = M.time ? 1 + hordeT / 30 : wave; p.streak++; p.streakT = 4; const sb = Math.min(p.streak - 1, 5) * .2; score = Math.round(score + d.score * (1 + (lv - 1) * .1) * (1 + sb)); if (p.streak >= 3) toast('Серия ×' + p.streak + '  +' + Math.round(sb * 100) + '% очков');
   scene.remove(e.g); const cy = (e.y0 + e.y1) / 2;
   burst(e.x, cy, e.z, e.col, e.type === 'boss' ? 90 : 16, e.type === 'boss' ? 12 : 6, 1, .16); burst(e.x, cy, e.z, 0x2a2a2a, 12, 5, 1.1, .2); burst(e.x, cy, e.z, 0xffa040, 8, 6, .35, .08);
-  SFX.kill(); shake += e.type === 'brute' ? .3 : .08; conAdd('kills'); conAdd(e.type);
+  SFX.kill(); shake += e.type === 'brute' ? .3 : .08; conAdd('kills'); conAdd(e.type); if (p.pk.leech && p.hp > 0) p.hp = Math.min(100, p.hp + p.pk.leech);
   if (e.type === 'mine') explode(e.x, .4, e.z, 4, 90, 14);
   if (e.type === 'boss') {
     SFX.boom(); shake += 1.2; boomLight.position.set(e.x, 2, e.z); boomLight.intensity = 6;
@@ -1243,7 +1291,7 @@ function explode(x, y, z, R, dmg, pd) {
     if (d < R + e.r && los(x, y + .4, z, e.x, (e.y0 + e.y1) / 2, e.z)) hurtEnemy(e, dmg * clamp(1.15 - d / R, .2, 1), dx / (d || 1), dz / (d || 1), false, e.x, (e.y0 + e.y1) / 2, e.z); }
   for (const b of barrels.slice()) if (Math.hypot(b.x - x, b.z - z) < R) hurtBarrel(b, 999);
   const pdist = Math.hypot(p.x - x, p.z - z);
-  if (pdist < R && los(x, y + .4, z, p.x, p.y + 1, p.z)) pd !== undefined ? hurtPlayer(pd * (1 - pdist / R), x, z) : hurtPlayer(dmg * .25 * (1 - pdist / R), x, z, true);
+  if (pdist < R && los(x, y + .4, z, p.x, p.y + 1, p.z)) pd !== undefined ? hurtPlayer(pd * (1 - pdist / R), x, z) : (p.pk.safe || hurtPlayer(dmg * .25 * (1 - pdist / R), x, z, true));
 }
 function updateEnemies(dt) {
   const calm = M.passive;
@@ -1365,7 +1413,7 @@ function update(dt) {
   p.aim = clamp(p.aim + (aimHeld && canAim && !sprint ? dt : -dt) * 7, 0, 1);
   const duck = (keys.KeyC || crouchTog) && p.onGround && !sprint; p.crouch = clamp(p.crouch + (duck ? dt : -dt) * 8, 0, 1);
   if (p.streakT > 0) { p.streakT -= dt; if (p.streakT <= 0) p.streak = 0; }
-  const sp = (sprint ? 10 : 6.8) * (w.slow || 1) * (1 - p.aim * .4) * (1 - p.crouch * .45), fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw), rx = Math.cos(p.yaw), rz = -Math.sin(p.yaw);
+  const sp = (sprint ? 10 : 6.8) * p.pk.sp * (w.slow || 1) * (1 - p.aim * .4) * (1 - p.crouch * .45), fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw), rx = Math.cos(p.yaw), rz = -Math.sin(p.yaw);
   const wx = (fx * iz + rx * ix) * sp, wz = (fz * iz + rz * ix) * sp, k = Math.min(1, dt * (p.onGround ? 12 : 3));
   p.vx += (wx - p.vx) * k; p.vz += (wz - p.vz) * k;
   moveEnt(p, p.vx * dt, p.vz * dt, p.r);
@@ -1394,7 +1442,7 @@ function update(dt) {
   } else if (queue.length) { spawnT -= dt; if (spawnT <= 0 && enemies.length < 10) { if (spawnEnemy(queue[0])) queue.shift(); spawnT = Math.max(.7, 1.9 - wave * .06); } }
   else if (!enemies.length && state === 'play') {
     if (M.waves && wave >= M.waves) { score += 500; endGame('win'); }
-    else if (restT <= 0) { restT = 5; score += wave * 100; conAdd('waves'); announce('Волна отбита', '+' + wave * 100 + ' очков. Собери припасы', '#86b25c'); }
+    else if (restT <= 0) { restT = 5; score += wave * 100; conAdd('waves'); announce('Волна отбита', '+' + wave * 100 + ' очков. Собери припасы', '#86b25c'); if (!M.passive) offerPerks(); }
     else { restT -= dt; if (restT <= 0) nextWave(); }
   }
   updateEnemies(dt); updateShots(dt); updatePickups(dt);
@@ -1467,7 +1515,7 @@ function hud() {
     ORDER.forEach((o, i) => { if (!o) return; const s = document.createElement('span'); s.textContent = (i + 1) + ' ' + GUN[o].short + (o === 'grenade' ? ' ×' + p.grenades : o === 'medkit' ? ' ×' + p.medkits : '');
       s.className = (o === (p.next || p.cur) ? 'on' : '') + (usable(o) ? '' : ' no'); box.appendChild(s); });
   }
-  radar();
+  radar(); numDraw(state === 'play' ? 1 / 60 : 0);
   const sc = scoped(), ads = p.aim > .6 && !!w.mag, sid = sightOf(id);
   $('scope').hidden = !sc; if (sc) $('scope').className = sc === 'acog' ? 'acog' : '';
   $('cross').hidden = ads; const r = $('ret'); r.hidden = !ads || !!sc; if (!r.hidden) r.className = sid;
@@ -1488,7 +1536,7 @@ function frame(now) {
   const dt = Math.min(.04, (now - last) / 1000); last = now;
   if (state === 'play') { update(dt); updateFx(dt); }
   else if (state === 'dead') { updateEnemies(dt * .3); updateFx(dt); }
-  let showVm = state === 'play' || state === 'pause';
+  let showVm = state === 'play' || state === 'pause' || state === 'perk';
   if (state === 'menu') {
     time += dt; const a = time * .1;
     if (camera.fov !== save.set.fov) { camera.fov = save.set.fov; camera.updateProjectionMatrix(); }
@@ -1525,6 +1573,7 @@ if (location.hash === '#test') window.__t = {
   show(type, dist) { enemies.slice().forEach(e => { e.dead = true; scene.remove(e.g); }); enemies = []; p.x = 4.5 * CELL; p.z = 15.5 * CELL; buildFlow(p.x, p.z); spawnEnemy(type); queue = [];
     const e = enemies[0]; e.x = p.x + .4; e.z = p.z - dist; e.born = 1; e.sp = 0; e.cd = 99; e.t1 = 99; e.t3 = 99; e.g.rotation.y = .6; for (const q of pd) q.life = 0; p.yaw = 0; p.pitch = type === 'hound' ? -.2 : type === 'boss' ? .12 : 0; },
   barrels: () => barrels.length, boom() { if (barrels[0]) hurtBarrel(barrels[0], 999); }, crouch(v) { crouchTog = v; }, eye: () => eyeY(),
+  perks: () => p.pk, pickPerk(i) { const b = $('perkCards').children[i]; if (b) b.click(); },
   drop() { let i = 0; for (const k in PK) dropPickup(k, p.x - 2 + i++ * 1, p.z - 3.5); p.yaw = 0; p.pitch = -.2; }
 };
 })();
