@@ -39,6 +39,8 @@ body{margin:0;background:var(--void);color:var(--ink);font-family:var(--body);ov
 .meter{width:min(240px,40vw);height:10px;background:rgba(255,255,255,.1)}
 .meter i{display:block;height:100%;background:var(--green);width:100%}
 .meter.thin{height:5px}.meter.thin i{background:var(--cyan)}
+#bossbar{display:flex;flex-direction:column;align-items:center;gap:4px;margin-top:6px}
+#bossbar .meter{width:min(460px,70vw)}#bossbar .meter i{background:var(--pink)}
 .stat{display:flex;align-items:baseline;gap:10px}
 body.touch .br{right:auto;bottom:auto;left:max(16px,env(safe-area-inset-left,0px));top:calc(74px + env(safe-area-inset-top,0px));align-items:flex-start;text-align:left}
 body.touch #slots{display:none}
@@ -116,7 +118,8 @@ button.ghost{background:transparent;color:var(--dim);border:1px solid var(--line
   <div id="cross" style="--g:6px"><i></i><i></i><i></i><i></i><i></i></div>
   <div id="hitm"></div>
   <div class="corner tl"><span class="lab">Очки</span><span class="big" id="score">0</span></div>
-  <div class="corner tc"><span id="wave">ВОЛНА 1</span><span class="lab" id="left"></span></div>
+  <div class="corner tc"><span id="wave">ВОЛНА 1</span><span class="lab" id="left"></span>
+    <div id="bossbar" hidden><div class="meter"><i id="bossfill"></i></div><span class="lab" style="color:var(--pink)">Ядро разлома</span></div></div>
   <div class="corner tr"><span class="lab">Рекорд</span><span class="lab" id="best" style="color:var(--gold)">0</span></div>
   <div class="corner bl">
     <div class="stat"><span class="big" id="hp">100</span><span class="lab">Здоровье</span></div>
@@ -339,8 +342,13 @@ const cv = $('view');
 let renderer;
 try { renderer = new T.WebGLRenderer({ canvas: cv, antialias: true, powerPreference: 'high-performance' }); }
 catch (e) { $('menu').hidden = true; $('err').hidden = false; return; }
-renderer.autoClear = false;
 const scene = new T.Scene(), vmScene = new T.Scene();
+{ /* small studio of coloured lamps, baked into reflections for the metal parts */
+  const es = new T.Scene(); es.add(new T.Mesh(new T.SphereGeometry(20, 16, 12), new T.MeshBasicMaterial({ color: 0x141838, side: T.BackSide })));
+  for (const [c, x, y, z, r] of [[0xffffff, 0, 14, 0, 5], [0x3df5ff, -14, 3, -6, 5], [0xff3d9a, 14, 2, 6, 5], [0xffb060, 0, -2, -15, 4]]) { const q = new T.Mesh(new T.SphereGeometry(r, 8, 6), new T.MeshBasicMaterial({ color: c })); q.position.set(x, y, z); es.add(q); }
+  const pm = new T.PMREMGenerator(renderer), env = pm.fromScene(es, .03).texture; scene.environment = env; vmScene.environment = env; pm.dispose();
+}
+renderer.autoClear = false;
 scene.background = new T.Color(0x05060f);
 scene.fog = new T.Fog(0x070818, 8, 52);
 const camera = new T.PerspectiveCamera(78, 1, .08, 120); camera.rotation.order = 'YXZ';
@@ -369,9 +377,12 @@ const wallTex = canvasTex(256, (g, s) => {
 });
 const wallGlow = canvasTex(256, (g, s) => { g.fillStyle = '#000'; g.fillRect(0, 0, s, s); g.fillStyle = '#3df5ff'; g.fillRect(0, s * .59, s, s * .035); });
 const crateTex = canvasTex(128, (g, s) => {
-  g.fillStyle = '#3b2c22'; g.fillRect(0, 0, s, s); g.strokeStyle = '#ff9a3d'; g.lineWidth = 6; g.strokeRect(6, 6, s - 12, s - 12);
-  g.lineWidth = 3; g.beginPath(); g.moveTo(6, 6); g.lineTo(s - 6, s - 6); g.moveTo(s - 6, 6); g.lineTo(6, s - 6); g.stroke();
-});
+  g.fillStyle = '#4a4f72'; g.fillRect(0, 0, s, s);
+  for (let i = 0; i < 300; i++) { g.fillStyle = 'rgba(' + (Math.random() < .5 ? '255,255,255' : '0,0,0') + ',' + rand(.02, .07) + ')'; g.fillRect(rand(0, s), rand(0, s), rand(2, 20), 1); }
+  g.fillStyle = '#23263c'; g.fillRect(0, s * .42, s, s * .2);
+  g.fillStyle = '#ffb84a'; for (let x = -10; x < s; x += 22) { g.beginPath(); g.moveTo(x, s * .6); g.lineTo(x + 10, s * .44); g.lineTo(x + 18, s * .44); g.lineTo(x + 8, s * .6); g.fill(); }
+  g.fillStyle = '#2f3352'; for (let x = 8; x < s; x += 32) { g.beginPath(); g.arc(x, 12, 3, 0, TAU); g.arc(x, s - 12, 3, 0, TAU); g.fill(); }
+}, 4, 1);
 const floorTex = canvasTex(256, (g, s) => {
   g.fillStyle = '#14162e'; g.fillRect(0, 0, s, s);
   for (let i = 0; i < 500; i++) { g.fillStyle = 'rgba(255,255,255,' + rand(.01, .04) + ')'; g.fillRect(rand(0, s), rand(0, s), rand(1, 4), rand(1, 4)); }
@@ -397,8 +408,15 @@ const flashTex = canvasTex(128, (g, s) => {
   const m4 = new T.Matrix4();
   const wm = new T.InstancedMesh(new T.BoxGeometry(CELL, WALLH, CELL), new T.MeshPhongMaterial({ map: wallTex, emissiveMap: wallGlow, emissive: 0xffffff, shininess: 30 }), walls.length);
   walls.forEach(([x, z], i) => { m4.makeTranslation(x * CELL + CELL / 2, WALLH / 2, z * CELL + CELL / 2); wm.setMatrixAt(i, m4); }); scene.add(wm);
-  const cm = new T.InstancedMesh(new T.BoxGeometry(CELL * .96, CRH, CELL * .96), new T.MeshPhongMaterial({ map: crateTex, shininess: 10 }), crates.length);
-  crates.forEach(([x, z], i) => { m4.makeTranslation(x * CELL + CELL / 2, CRH / 2, z * CELL + CELL / 2); cm.setMatrixAt(i, m4); }); scene.add(cm);
+  const tank = new T.InstancedMesh(new T.CylinderGeometry(1.36, 1.36, CRH, 28), new T.MeshStandardMaterial({ map: crateTex, metalness: .7, roughness: .35 }), crates.length);
+  const lid = new T.InstancedMesh(new T.SphereGeometry(1.3, 24, 8, 0, TAU, 0, Math.PI / 2), new T.MeshStandardMaterial({ color: 0x2a2e46, metalness: .8, roughness: .3 }), crates.length);
+  const hoop = new T.InstancedMesh(new T.TorusGeometry(1.38, .06, 8, 32), new T.MeshBasicMaterial({ color: 0xff9a3d }), crates.length * 2);
+  const q = new T.Quaternion().setFromEuler(new T.Euler(Math.PI / 2, 0, 0)), one = new T.Vector3(1, 1, 1), flat = new T.Vector3(1, .28, 1), noq = new T.Quaternion();
+  crates.forEach(([x, z], i) => { const wx = x * CELL + CELL / 2, wz = z * CELL + CELL / 2;
+    m4.makeTranslation(wx, CRH / 2, wz); tank.setMatrixAt(i, m4);
+    m4.compose(new T.Vector3(wx, CRH, wz), noq, flat); lid.setMatrixAt(i, m4);
+    m4.compose(new T.Vector3(wx, CRH - .12, wz), q, one); hoop.setMatrixAt(i * 2, m4); m4.compose(new T.Vector3(wx, .35, wz), q, one); hoop.setMatrixAt(i * 2 + 1, m4); });
+  scene.add(tank, lid, hoop);
   scene.add(new T.AmbientLight(0x6670b8, .75));
   scene.add(new T.HemisphereLight(0x8090ff, 0x201030, .45));
   const lamps = [[4, 3, 0xff3d9a], [12, 3, 0x3df5ff], [20, 3, 0xff9a3d], [4, 21, 0xff9a3d], [12, 21, 0x3df5ff], [20, 21, 0xff3d9a], [7, 12, 0x9a7bff], [17, 12, 0x9a7bff]];
@@ -445,118 +463,203 @@ function tracer(ax, ay, az, bx, by, bz, col) {
 }
 
 /* ───────────── models ───────────── */
-const mat = (c, e = 0x000000, sh = 40) => new T.MeshPhongMaterial({ color: c, emissive: e, shininess: sh, flatShading: true });
+const PI = Math.PI, GC = new Map();
+const geo = (k, f) => { let g = GC.get(k); if (!g) { g = f(); GC.set(k, g); } return g; };
+const std = (c, o) => new T.MeshStandardMaterial(Object.assign({ color: c, metalness: .55, roughness: .42 }, o));
 const glow = c => new T.MeshBasicMaterial({ color: c });
-function bx(par, w, h, d, m, x = 0, y = 0, z = 0) { const o = new T.Mesh(new T.BoxGeometry(w, h, d), m); o.position.set(x, y, z); par.add(o); return o; }
-function cyl(par, r, len, m, x = 0, y = 0, z = 0, r2 = r) { const o = new T.Mesh(new T.CylinderGeometry(r2, r, len, 10), m); o.rotation.x = Math.PI / 2; o.position.set(x, y, z); par.add(o); return o; }
+function add(par, g, m, x = 0, y = 0, z = 0) { const o = new T.Mesh(g, m); o.position.set(x, y, z); par.add(o); return o; }
+function zc(par, g, m, x, y, z) { const o = add(par, g, m, x, y, z); o.rotation.x = PI / 2; return o; }   /* lay a Y-axis shape along Z: its top faces the viewer */
+const sc = (o, x, y, z) => { o.scale.set(x, y, z); return o; };
+const sphG = (r, s = 18) => geo('s' + r + '_' + s, () => new T.SphereGeometry(r, s, Math.max(8, (s * .7) | 0)));
+const cylG = (rt, rb, h, s = 18) => geo(['c', rt, rb, h, s].join(), () => new T.CylinderGeometry(rt, rb, h, s));
+const torG = (R, r, arc = TAU, s = 28) => geo(['t', R, r, arc, s].join(), () => new T.TorusGeometry(R, r, 8, s, arc));
+const coneG = (r, h, s = 14) => geo(['k', r, h, s].join(), () => new T.ConeGeometry(r, h, s));
+/* capsule along Y: radius r at the bottom, r2 at the top */
+const capG = (r, len, r2 = r) => geo(['p', r, len, r2].join(), () => {
+  const pts = [];
+  for (let i = 0; i <= 6; i++) { const a = -PI / 2 + i / 6 * PI / 2; pts.push(new T.Vector2(Math.max(0, Math.cos(a) * r), -len / 2 + Math.sin(a) * r)); }
+  for (let i = 0; i <= 6; i++) { const a = i / 6 * PI / 2; pts.push(new T.Vector2(Math.max(0, Math.cos(a) * r2), len / 2 + Math.sin(a) * r2)); }
+  return new T.LatheGeometry(pts, 16);
+});
+/* box with rounded edges */
+const rboxG = (w, h, d, r) => geo(['b', w, h, d, r].join(), () => {
+  const b = Math.min(r, w / 2 - .0005, h / 2 - .0005, d / 2 - .0005) * .6, rc = Math.max(.0005, Math.min(r, w / 2, h / 2) - b), x = w / 2 - b, y = h / 2 - b, s = new T.Shape();
+  s.moveTo(-x + rc, -y); s.lineTo(x - rc, -y); s.quadraticCurveTo(x, -y, x, -y + rc); s.lineTo(x, y - rc); s.quadraticCurveTo(x, y, x - rc, y);
+  s.lineTo(-x + rc, y); s.quadraticCurveTo(-x, y, -x, y - rc); s.lineTo(-x, -y + rc); s.quadraticCurveTo(-x, -y, -x + rc, -y);
+  const g = new T.ExtrudeGeometry(s, { depth: d - 2 * b, bevelEnabled: true, bevelThickness: b, bevelSize: b, bevelSegments: 3, curveSegments: 5 });
+  g.translate(0, 0, -(d - 2 * b) / 2); return g;
+});
+/* side silhouette [forward, up] extruded to a thickness, with bevelled edges; forward is -Z */
+const profG = (key, pts, thick, b) => geo('f' + key, () => {
+  const s = new T.Shape(); pts.forEach((q, i) => i ? s.lineTo(q[0], q[1]) : s.moveTo(q[0], q[1])); s.closePath();
+  const g = new T.ExtrudeGeometry(s, { depth: thick - 2 * b, bevelEnabled: true, bevelThickness: b, bevelSize: b, bevelSegments: 3 });
+  g.rotateY(PI / 2); g.translate(-(thick - 2 * b) / 2, 0, 0); return g;
+});
 
-/* --- viewmodels: what you hold in your hands --- */
-vmScene.add(new T.AmbientLight(0x8890d0, .85));
-{ const d = new T.DirectionalLight(0xffffff, .9); d.position.set(-1, 2, 1.5); vmScene.add(d); const d2 = new T.DirectionalLight(0xff3d9a, .35); d2.position.set(2, -1, 0); vmScene.add(d2); }
+/* --- what you hold in your hands --- */
+vmScene.add(new T.AmbientLight(0x8890d0, .55));
+{ const d = new T.DirectionalLight(0xffffff, 1.1); d.position.set(-1, 2, 1.5); vmScene.add(d); const d2 = new T.DirectionalLight(0xff3d9a, .5); d2.position.set(2, -1, 0); vmScene.add(d2); }
 const vmFlashLight = new T.PointLight(0xffc070, 0, 3); vmFlashLight.position.set(.2, -.1, -.9); vmScene.add(vmFlashLight);
 const vmRoot = new T.Group(); vmScene.add(vmRoot);
-const M_DARK = mat(0x20233c, 0, 80), M_STEEL = mat(0x5a6088, 0, 90), M_GRIP = mat(0x14151f, 0, 10), M_SLEEVE = mat(0x1a2748, 0, 10), M_GLOVE = mat(0x2a2d3a, 0, 20), M_ORANGE = mat(0xd9742a, 0, 30);
-function arm(g, x, y, z, left) {
-  const a = new T.Group(); a.position.set(x, y, z);
-  bx(a, .085, .1, .11, M_GLOVE, 0, 0, 0); bx(a, .09, .02, .03, glow(0x3df5ff), 0, .055, -.03);
-  bx(a, .08, .025, .09, M_GLOVE, 0, .03, -.07).rotation.x = .5;
-  const f = new T.Group(); f.position.set(0, -.01, .05); a.add(f);
-  bx(f, .09, .09, .55, M_SLEEVE, 0, 0, .28); bx(f, .1, .1, .04, M_DARK, 0, 0, .06);
+const M_GUN = std(0x2a2e46, { metalness: .85, roughness: .3 }), M_STEEL = std(0x9aa0c0, { metalness: .95, roughness: .2 }), M_GRIP = std(0x16171d, { metalness: .1, roughness: .85 }),
+  M_SLEEVE = std(0x1c2a52, { metalness: 0, roughness: .9 }), M_GLOVE = std(0x24262f, { metalness: .15, roughness: .65 }), M_ORANGE = std(0xe07a2c, { metalness: .35, roughness: .45 }),
+  M_OLIVE = std(0x3d4d38, { metalness: .3, roughness: .6 });
+
+function hand(g, x, y, z, left) {
+  const a = new T.Group(), s = left ? -1 : 1; a.position.set(x, y, z);
+  sc(add(a, sphG(.05), M_GLOVE, s * .03, 0, .012), .72, 1.08, 1.12);
+  for (let i = 0; i < 4; i++) {
+    const fy = .037 - i * .0245;
+    zc(a, capG(.0118, .034), M_GLOVE, s * .036, fy, -.03);
+    add(a, sphG(.0135, 10), M_GLOVE, s * .036, fy, -.053);
+    add(a, capG(.0112, .04), M_GLOVE, s * .008, fy, -.057).rotation.z = PI / 2;
+  }
+  const th = zc(a, capG(.0135, .04), M_GLOVE, -s * .027, .042, -.012); th.rotation.y = s * .3;
+  add(a, rboxG(.012, .036, .05, .005), glow(0x3df5ff), s * .064, .002, .012);
+  const f = new T.Group(); f.position.set(s * .03, -.02, .05); a.add(f);
+  zc(f, capG(.042, .5, .058), M_SLEEVE, 0, 0, .3);
+  add(f, torG(.047, .013, TAU, 18), M_GUN, 0, 0, .055); add(f, torG(.049, .005, TAU, 18), glow(0x3df5ff), 0, 0, .085);
   f.rotation.x = .32; f.rotation.y = left ? -.75 : .16;
   g.add(a); return a;
 }
+const GUNS = {
+  pistol(g) {
+    add(g, profG('pis', [[-.075, .085], [.2, .085], [.207, .06], [.2, .03], [.06, .024], [.032, 0], [.016, -.11], [-.046, -.125], [-.032, -.02], [-.082, .02]], .05, .007), M_GUN);
+    add(g, rboxG(.044, .022, .25, .009), M_STEEL, 0, .09, -.065);
+    zc(g, cylG(.0135, .0135, .05, 12), M_STEEL, 0, .062, -.215);
+    add(g, rboxG(.055, .012, .17, .005), glow(0x3df5ff), 0, .042, -.08);
+    add(g, rboxG(.057, .1, .046, .014), M_GRIP, 0, -.06, .012).rotation.x = .14;
+    add(g, torG(.026, .005, PI, 12), M_GUN, 0, -.002, -.05).rotation.set(PI, PI / 2, 0);
+    add(g, rboxG(.01, .016, .012, .003), M_STEEL, 0, .106, -.185); add(g, rboxG(.03, .014, .012, .003), M_STEEL, 0, .105, .05);
+    return { muzzle: [0, .062, -.25], grip: [0, -.06, .012] };
+  },
+  shotgun(g) {
+    zc(g, cylG(.02, .02, .5, 14), M_STEEL, -.021, .062, -.43); zc(g, cylG(.02, .02, .5, 14), M_STEEL, .021, .062, -.43);
+    zc(g, cylG(.016, .016, .42, 12), M_GUN, 0, .022, -.38); add(g, rboxG(.012, .008, .46, .003), M_GUN, 0, .086, -.42);
+    add(g, torG(.03, .006, TAU, 14), M_GUN, 0, .05, -.66).scale.set(1.25, 1, 1);
+    add(g, profG('sgr', [[-.13, .092], [.2, .092], [.2, 0], [.06, -.02], [-.13, -.005]], .07, .012), M_GUN);
+    add(g, profG('sgs', [[-.12, .085], [-.2, .075], [-.42, .04], [-.43, -.075], [-.39, -.08], [-.2, -.02], [-.12, 0]], .05, .014), M_GRIP);
+    add(g, rboxG(.074, .012, .18, .005), glow(0xffd23d), 0, .06, -.02);
+    add(g, capG(.024, .08), M_GRIP, 0, -.06, .1).rotation.x = .3;
+    const pump = new T.Group(); pump.position.set(0, .022, -.3); g.add(pump);
+    zc(pump, cylG(.036, .036, .17, 16), M_ORANGE, 0, 0, 0);
+    for (let i = 0; i < 3; i++) add(pump, torG(.037, .006, TAU, 16), M_GRIP, 0, 0, -.05 + i * .05);
+    return { muzzle: [0, .062, -.69], pump, grip: [0, -.07, .1] };
+  },
+  plasma(g) {
+    add(g, profG('plb', [[-.16, .1], [.08, .115], [.27, .085], [.31, .045], [.27, 0], [.12, -.03], [-.02, -.02], [-.16, 0]], .085, .018), M_GUN);
+    add(g, profG('pls', [[-.15, .09], [-.36, .07], [-.38, -.06], [-.33, -.07], [-.24, -.01], [-.15, 0]], .055, .016), M_GRIP);
+    const core = zc(g, cylG(.02, .02, .3, 12), glow(0x9ffbff), 0, .045, -.44), coils = [];
+    for (let i = 0; i < 4; i++) coils.push(add(g, torG(.04, .009, TAU, 18), glow(0x3df5ff), 0, .045, -.34 - i * .06));
+    zc(g, cylG(.012, .006, .3, 8), M_STEEL, 0, .1, -.44); zc(g, cylG(.012, .006, .3, 8), M_STEEL, 0, -.01, -.44);
+    add(g, sphG(.02, 10), M_STEEL, 0, .045, -.6);
+    add(g, rboxG(.03, .02, .22, .007), M_STEEL, 0, .127, -.05); add(g, sphG(.012, 8), glow(0xff3d9a), 0, .145, .04);
+    add(g, cylG(.03, .03, .09, 14), M_ORANGE, 0, -.06, -.16); add(g, cylG(.032, .032, .02, 14), glow(0xffd23d), 0, -.06, -.16);
+    add(g, capG(.024, .08), M_GRIP, 0, -.07, .05).rotation.x = .3;
+    add(g, rboxG(.09, .012, .2, .005), glow(0x3df5ff), 0, .06, -.05);
+    return { muzzle: [0, .045, -.62], coils, core, grip: [0, -.08, .05] };
+  },
+  grenade(g) {
+    const b = new T.Group(); b.position.y = .05; g.add(b);
+    sc(add(b, sphG(.055, 20), M_OLIVE), 1, 1.15, 1);
+    for (const y of [-.03, .03]) add(b, torG(.049, .005, TAU, 20), M_GRIP, 0, y, 0).rotation.x = PI / 2;
+    add(b, torG(.056, .006, TAU, 20), glow(0xff5a3d)).rotation.x = PI / 2;
+    add(b, cylG(.02, .026, .03, 12), M_STEEL, 0, .072, 0); add(b, rboxG(.014, .09, .006, .003), M_STEEL, 0, .05, .05).rotation.x = -.35;
+    add(b, torG(.014, .003, TAU, 12), M_STEEL, .032, .088, 0);
+    return {};
+  },
+  stim(g) {
+    const b = new T.Group(); b.position.y = .08; g.add(b);
+    add(b, cylG(.02, .02, .1, 14), new T.MeshBasicMaterial({ color: 0x5dff8f, transparent: true, opacity: .85 }));
+    add(b, cylG(.024, .024, .03, 14), M_STEEL, 0, .062, 0); add(b, cylG(.024, .024, .03, 14), M_STEEL, 0, -.062, 0);
+    add(b, coneG(.012, .03, 10), M_STEEL, 0, .09, 0); add(b, cylG(.003, .003, .06, 6), M_STEEL, 0, .13, 0);
+    add(b, rboxG(.075, .008, .03, .003), M_ORANGE, 0, -.078, 0); add(b, cylG(.008, .008, .05, 8), M_STEEL, 0, -.1, 0); add(b, cylG(.02, .02, .008, 12), M_ORANGE, 0, -.127, 0);
+    return {};
+  },
+  blade(g) {
+    const b = new T.Group(); g.add(b);
+    add(b, capG(.02, .12), M_GRIP);
+    for (let i = 0; i < 3; i++) add(b, torG(.021, .004, TAU, 12), M_STEEL, 0, -.04 + i * .04, 0).rotation.x = PI / 2;
+    sc(add(b, sphG(.03, 14), M_STEEL, 0, .088, 0), 1, .5, 2.1); add(b, sphG(.024, 12), M_ORANGE, 0, -.088, 0);
+    const edge = add(b, profG('bl', [[-.03, 0], [.03, 0], [.027, .5], [0, .6], [-.027, .5]], .012, .004), new T.MeshBasicMaterial({ color: 0x3df5ff, transparent: true, opacity: .9 }), 0, .1, 0);
+    add(b, profG('blc', [[-.008, 0], [.008, 0], [.006, .5], [0, .56], [-.006, .5]], .015, .002), glow(0xffffff), 0, .1, 0);
+    b.rotation.set(-.55, 0, -.25);
+    return { blade: b, edge };
+  }
+};
 const VM = {};
-function vmAdd(id, build, base) {
-  const g = new T.Group(); const info = build(g) || {};
+function vmAdd(id, base, hands) {
+  const g = new T.Group(), info = GUNS[id](g); hands(g, info);
   g.visible = false; vmRoot.add(g);
   VM[id] = { g, base: new T.Vector3(...base), muzzle: info.muzzle || null, parts: info };
 }
-vmAdd('pistol', g => {
-  bx(g, .052, .07, .27, M_DARK, 0, .05, -.1); bx(g, .054, .014, .2, glow(0x3df5ff), 0, .03, -.1);
-  bx(g, .04, .03, .05, M_STEEL, 0, .05, -.245); bx(g, .046, .14, .065, M_GRIP, 0, -.045, .005).rotation.x = .22;
-  bx(g, .012, .02, .014, M_STEEL, 0, .094, -.21); bx(g, .03, .02, .014, M_STEEL, 0, .094, .02);
-  bx(g, .014, .05, .07, M_DARK, 0, -.01, -.06);
-  arm(g, .005, -.07, .03, false);
-  return { muzzle: [0, .05, -.3] };
-}, [.25, -.2, -.72]);
-vmAdd('shotgun', g => {
-  cyl(g, .021, .62, M_STEEL, -.022, .055, -.34); cyl(g, .021, .62, M_STEEL, .022, .055, -.34);
-  bx(g, .085, .1, .3, M_DARK, 0, .035, .0); bx(g, .087, .016, .2, glow(0xffd23d), 0, .06, 0);
-  const pump = bx(g, .09, .055, .17, M_ORANGE, 0, .0, -.3);
-  bx(g, .055, .09, .3, M_GRIP, 0, -.005, .28).rotation.x = -.12; bx(g, .045, .1, .06, M_GRIP, 0, -.06, .1).rotation.x = .3;
-  arm(g, .005, -.08, .12, false); const la = arm(g, -.01, -.045, -.3, true);
-  return { muzzle: [0, .055, -.68], pump, la };
-}, [.23, -.2, -.62]);
-vmAdd('plasma', g => {
-  bx(g, .095, .12, .44, M_DARK, 0, .03, -.1); bx(g, .06, .05, .2, M_STEEL, 0, .11, -.05);
-  const coils = [];
-  for (let i = 0; i < 4; i++) coils.push(bx(g, .1, .1, .03, glow(0x3df5ff), 0, .03, -.26 + i * .075));
-  bx(g, .02, .02, .28, M_STEEL, 0, .08, -.45); bx(g, .02, .02, .28, M_STEEL, 0, -.02, -.45);
-  const core = cyl(g, .018, .26, glow(0x9ffbff), 0, .03, -.44);
-  bx(g, .045, .11, .06, M_GRIP, 0, -.07, .06).rotation.x = .25; bx(g, .06, .1, .2, M_GRIP, 0, .01, .22);
-  bx(g, .05, .06, .1, M_ORANGE, 0, -.055, -.2);
-  arm(g, .005, -.09, .08, false); arm(g, -.01, -.085, -.2, true);
-  return { muzzle: [0, .03, -.6], coils, core };
-}, [.22, -.21, -.62]);
-vmAdd('blade', g => {
-  const b = new T.Group(); g.add(b);
-  bx(b, .036, .15, .036, M_GRIP, 0, 0, 0); bx(b, .11, .022, .05, M_STEEL, 0, .085, 0);
-  bx(b, .05, .03, .05, M_ORANGE, 0, -.085, 0);
-  const edge = bx(b, .014, .56, .06, new T.MeshBasicMaterial({ color: 0x3df5ff, transparent: true, opacity: .9 }), 0, .38, 0);
-  bx(b, .004, .54, .03, glow(0xffffff), 0, .38, 0);
-  b.rotation.set(-.55, 0, -.25);
-  const a = arm(g, .0, -.0, .02, false); a.rotation.z = -.2;
-  return { blade: b, edge };
-}, [.29, -.27, -.7]);
-vmAdd('grenade', g => {
-  const s = new T.Mesh(new T.IcosahedronGeometry(.055, 1), mat(0x2f3d2c, 0, 30)); s.position.set(0, .05, -.02); g.add(s);
-  bx(g, .115, .016, .115, glow(0xff5a3d), 0, .05, -.02); bx(g, .03, .04, .03, M_STEEL, 0, .11, -.02); bx(g, .012, .012, .06, M_STEEL, .02, .125, -.02);
-  arm(g, 0, -.02, .02, false);
-  return {};
-}, [.26, -.23, -.66]);
-vmAdd('stim', g => {
-  const c = new T.Mesh(new T.CylinderGeometry(.022, .022, .18, 10), M_STEEL); c.position.set(0, .08, -.02); g.add(c);
-  const liq = new T.Mesh(new T.CylinderGeometry(.024, .024, .08, 10), glow(0x5dff8f)); liq.position.set(0, .08, -.02); g.add(liq);
-  const n = new T.Mesh(new T.CylinderGeometry(.004, .004, .06, 6), M_STEEL); n.position.set(0, .2, -.02); g.add(n);
-  bx(g, .05, .02, .05, M_ORANGE, 0, -.01, -.02);
-  arm(g, 0, -.02, .02, false);
-  return {};
-}, [.25, -.23, -.64]);
+vmAdd('pistol', [.25, -.2, -.72], (g, i) => hand(g, ...i.grip, false));
+vmAdd('shotgun', [.25, -.21, -.74], (g, i) => { hand(g, ...i.grip, false); i.la = hand(g, .01, -.012, -.3, true); i.la.rotation.set(PI / 2, 0, -.5); });
+vmAdd('plasma', [.24, -.22, -.74], (g, i) => { hand(g, ...i.grip, false); const l = hand(g, .01, -.045, -.2, true); l.rotation.set(PI / 2, 0, -.5); });
+vmAdd('blade', [.29, -.27, -.7], (g, i) => { const a = hand(g, 0, 0, .0, false); a.rotation.set(-.55, 0, -.25); });
+vmAdd('grenade', [.26, -.23, -.66], g => hand(g, .0, .04, .02, false));
+vmAdd('stim', [.25, -.23, -.64], g => hand(g, 0, .07, .02, false));
 const flashQuad = new T.Mesh(new T.PlaneGeometry(.34, .34), new T.MeshBasicMaterial({ map: flashTex, transparent: true, blending: T.AdditiveBlending, depthTest: false, depthWrite: false }));
 flashQuad.visible = false; flashQuad.renderOrder = 10; vmRoot.add(flashQuad);
 
 /* --- enemies --- */
 const ET = {
-  hound: { name: 'Гончая', hp: 45, sp: 6.6, r: .55, h: 1.15, col: 0xff3d9a, score: 20 },
+  hound: { name: 'Гончая', hp: 45, sp: 6.6, r: .55, h: 1.25, col: 0xff3d9a, score: 20 },
   drone: { name: 'Дрон', hp: 34, sp: 4.2, r: .5, h: 1, col: 0xffd23d, score: 30, fly: 1.9 },
-  brute: { name: 'Громила', hp: 260, sp: 2.5, r: .85, h: 2.7, col: 0xff9a3d, score: 90 },
+  brute: { name: 'Громила', hp: 260, sp: 2.5, r: .85, h: 2.85, col: 0xff9a3d, score: 90 },
   boss: { name: 'Ядро разлома', hp: 1500, sp: 2.1, r: 1.6, h: 3.2, col: 0xff3d9a, score: 1500, fly: 2.3 }
 };
+const shadowGeo = new T.CircleGeometry(1, 24), shadowMat = new T.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: .45, depthWrite: false });
 function buildEnemy(type) {
   const g = new T.Group(), d = ET[type], mats = [], P = {};
-  const m = (c, e) => { const x = mat(c, e); x.userData.e = e; mats.push(x); return x; };
+  const m = (c, e, o) => { const x = std(c, Object.assign({ emissive: e }, o)); x.userData.e = e; mats.push(x); return x; };
   if (type === 'hound') {
-    const body = m(0x2a1030, 0x300818), dark = m(0x15101e, 0x000000);
-    bx(g, .75, .5, 1.3, body, 0, .7, 0); bx(g, .55, .42, .5, body, 0, .85, .8); bx(g, .4, .2, .35, dark, 0, .68, 1.08);
-    bx(g, .12, .08, .04, glow(0xff3d9a), -.15, .93, 1.06); bx(g, .12, .08, .04, glow(0xff3d9a), .15, .93, 1.06);
-    bx(g, .8, .06, .9, glow(0xff3d9a), 0, .97, -.05);
-    P.legs = [[-.3, .55], [.3, .55], [-.3, -.5], [.3, -.5]].map(([x, z]) => { const l = new T.Group(); l.position.set(x, .5, z); bx(l, .16, .55, .16, dark, 0, -.25, 0); g.add(l); return l; });
+    const body = m(0x4a1a52, 0x2a0618, { metalness: .5, roughness: .38 }), dark = m(0x1a1524, 0x000000, { metalness: .65, roughness: .45 }), gl = glow(0xff3d9a);
+    sc(add(g, sphG(.4), body, 0, .76, 0), .9, .8, 1.75); add(g, sphG(.37), body, 0, .8, .38); sc(add(g, sphG(.3), dark, 0, .72, -.48), .95, .9, 1.1);
+    add(g, capG(.17, .25, .15), body, 0, .92, .66).rotation.x = .9;
+    sc(add(g, sphG(.24), body, 0, 1.0, .86), 1, .88, 1.15);
+    zc(g, cylG(.09, .15, .34, 14), dark, 0, .92, 1.13); add(g, sphG(.09, 12), dark, 0, .92, 1.3); sc(add(g, sphG(.1, 12), dark, 0, .82, 1.1), 1, .5, 1.8);
+    for (const s of [-1, 1]) { add(g, coneG(.07, .26), dark, s * .15, 1.23, .74).rotation.set(-.5, 0, -s * .25); add(g, sphG(.05, 10), gl, s * .14, 1.05, 1.03); }
+    for (let i = 0; i < 6; i++) add(g, sphG(.055, 10), gl, 0, 1.08 - Math.abs(i - 2) * .025, .42 - i * .2);
+    add(g, capG(.06, .45, .02), dark, 0, .9, -.86).rotation.x = -1;
+    P.legs = [[-.27, .5], [.27, .5], [-.27, -.5], [.27, -.5]].map(([x, z]) => {
+      const l = new T.Group(); l.position.set(x, .64, z); add(l, sphG(.12, 12), body);
+      add(l, capG(.07, .2, .09), dark, 0, -.16, .03).rotation.x = -.25; add(l, capG(.045, .22, .06), dark, 0, -.42, 0).rotation.x = .2;
+      sc(add(l, sphG(.07, 10), dark, 0, -.58, .05), 1, .6, 1.5); g.add(l); return l;
+    });
   } else if (type === 'drone') {
-    const body = m(0x3a3320, 0x2a2000); const o = new T.Mesh(new T.OctahedronGeometry(.48, 0), body); g.add(o); P.core = o;
-    const ring = new T.Mesh(new T.TorusGeometry(.66, .045, 6, 20), glow(0xffd23d)); ring.rotation.x = Math.PI / 2; g.add(ring); P.ring = ring;
-    const eye = new T.Mesh(new T.SphereGeometry(.14, 10, 8), glow(0xffffff)); eye.position.z = .4; g.add(eye);
+    const body = m(0x5a5236, 0x241c00, { metalness: .85, roughness: .28 }), dark = m(0x1c1c26, 0x000000, { metalness: .7, roughness: .4 }), gl = glow(0xffd23d);
+    add(g, sphG(.38, 24), body); add(g, torG(.385, .035), dark).rotation.x = PI / 2;
+    add(g, sphG(.15, 14), glow(0xffffff), 0, 0, .3); add(g, torG(.17, .03, TAU, 18), dark, 0, 0, .3);
+    for (const s of [-1, 1]) { zc(g, capG(.09, .3), dark, s * .52, -.02, 0); add(g, sphG(.06, 10), gl, s * .52, -.02, .2); add(g, cylG(.03, .03, .2, 8), dark, s * .42, -.01, 0).rotation.z = PI / 2; }
+    add(g, cylG(.01, .01, .3, 6), dark, 0, .5, -.1); add(g, sphG(.035, 8), gl, 0, .66, -.1); zc(g, cylG(.05, .04, .3, 10), dark, 0, -.3, .2);
+    const ring = new T.Group(); ring.rotation.x = PI / 2; g.add(ring); add(ring, torG(.74, .028, TAU, 36), gl);
+    for (let i = 0; i < 3; i++) add(ring, sphG(.07, 10), dark, Math.cos(i * TAU / 3) * .74, Math.sin(i * TAU / 3) * .74, 0);
+    P.ring = ring; P.core = new T.Group();
   } else if (type === 'brute') {
-    const body = m(0x3a2414, 0x2a1000), dark = m(0x1a1410, 0x000000);
-    P.legs = [-.35, .35].map(x => { const l = new T.Group(); l.position.set(x, 1.1, 0); bx(l, .42, 1.1, .5, dark, 0, -.55, 0); g.add(l); return l; });
-    bx(g, 1.5, 1.2, .9, body, 0, 1.7, 0); bx(g, 1.1, .3, .7, dark, 0, 1.0, 0);
-    bx(g, .55, .45, .55, dark, 0, 2.5, .05); bx(g, .46, .12, .06, glow(0xff9a3d), 0, 2.55, .34);
-    bx(g, .9, .5, .08, glow(0xff9a3d), 0, 1.8, .46);
-    P.arms = [-1, 1].map(s => { const a = new T.Group(); a.position.set(s * .98, 2.1, 0); bx(a, .42, .5, .5, body, 0, 0, 0); cyl(a, .17, .95, dark, 0, -.3, .4); cyl(a, .1, .1, glow(0xff9a3d), 0, -.3, .9); g.add(a); return a; });
+    const body = m(0x5a3418, 0x2a1000, { metalness: .6, roughness: .4 }), dark = m(0x1f1814, 0x000000, { metalness: .7, roughness: .5 }), gl = glow(0xff9a3d);
+    P.legs = [-.36, .36].map(x => { const l = new T.Group(); l.position.set(x, 1.15, 0);
+      add(l, sphG(.26, 14), dark); add(l, capG(.19, .36, .23), dark, 0, -.32, 0); add(l, sphG(.2, 12), body, 0, -.58, .03); add(l, capG(.17, .3, .15), dark, 0, -.82, 0);
+      sc(add(l, sphG(.2, 12), body, 0, -1.06, .1), 1, .45, 1.6); g.add(l); return l; });
+    sc(add(g, sphG(.5), dark, 0, 1.2, 0), 1.05, .6, .8);
+    sc(add(g, sphG(.78, 24), body, 0, 1.85, 0), 1, .88, .72); sc(add(g, sphG(.5), dark, 0, 2.2, -.22), 1.2, .7, .8);
+    add(g, sphG(.2, 14), glow(0xffd9a0), 0, 1.85, .5); add(g, torG(.24, .045, TAU, 20), dark, 0, 1.85, .5);
+    add(g, sphG(.28, 16), dark, 0, 2.62, .08); add(g, torG(.25, .04, PI, 14), gl, 0, 2.64, .1).rotation.x = PI / 2;
+    add(g, cylG(.16, .2, .16, 12), dark, 0, 2.38, .04);
+    P.arms = [-1, 1].map(s => { const a = new T.Group(); a.position.set(s * 1.0, 2.2, 0);
+      add(a, sphG(.38, 16), body); add(a, capG(.17, .3, .2), dark, 0, -.42, 0);
+      zc(a, cylG(.21, .21, .9, 16), dark, 0, -.75, .35); for (let i = 0; i < 3; i++) add(a, torG(.215, .03, TAU, 18), body, 0, -.75, .05 + i * .28);
+      zc(a, cylG(.13, .13, .08, 14), gl, 0, -.75, .82); g.add(a); return a; });
   } else {
-    const shell = m(0x30103a, 0x400a30); const o = new T.Mesh(new T.IcosahedronGeometry(1.5, 0), shell); g.add(o); P.core = o;
-    const c = new T.Mesh(new T.SphereGeometry(.7, 14, 10), glow(0xffffff)); g.add(c); P.eye = c; shell.transparent = true; shell.opacity = .82;
-    P.rings = [0, 1].map(i => { const r = new T.Mesh(new T.TorusGeometry(2 + i * .35, .08, 6, 28), glow(i ? 0x3df5ff : 0xff3d9a)); g.add(r); return r; });
+    const shell = m(0x4a1456, 0x400a30, { metalness: .7, roughness: .25, flatShading: true, transparent: true, opacity: .85 }), dark = m(0x1a1020, 0x000000, { metalness: .8, roughness: .35 });
+    const core = new T.Group(); g.add(core); add(core, new T.IcosahedronGeometry(1.45, 1), shell);
+    const ico = new T.IcosahedronGeometry(1, 0).attributes.position, seen = {}, up = new T.Vector3(0, 1, 0);
+    for (let i = 0; i < ico.count; i++) { const v = new T.Vector3().fromBufferAttribute(ico, i), k = v.toArray().map(n => n.toFixed(2)).join(); if (seen[k]) continue; seen[k] = 1;
+      const s = add(core, coneG(.2, .8, 10), dark, v.x * 1.7, v.y * 1.7, v.z * 1.7); s.quaternion.setFromUnitVectors(up, v.normalize()); add(core, sphG(.07, 8), glow(0xff3d9a), v.x * 2.12, v.y * 2.12, v.z * 2.12); }
+    P.core = core; P.eye = add(g, sphG(.7, 20), glow(0xffffff));
+    P.rings = [0, 1].map(i => add(g, torG(2.35 + i * .35, .07, TAU, 48), glow(i ? 0x3df5ff : 0xff3d9a)));
   }
+  const sh = new T.Mesh(shadowGeo, shadowMat); sh.rotation.x = -PI / 2; sh.scale.setScalar(d.r * 1.5); sh.position.y = .03; g.add(sh); P.shadow = sh;
   return { g, mats, P };
 }
 
@@ -567,17 +670,21 @@ const PK = {
   grenade: { col: 0xff5a3d, text: '+1 граната' }, stim: { col: 0x5dff8f, text: '+1 стимулятор' },
   shotgun: { col: 0xffd23d, text: 'ДРОБОВИК «ШКВАЛ»', weapon: true }, plasma: { col: 0x3df5ff, text: 'ПЛАЗМЕННАЯ ВИНТОВКА', weapon: true }
 };
+const M_BRASS = std(0xd9a441, { metalness: .9, roughness: .25 }), M_WHITE = std(0xe9ecff, { metalness: .1, roughness: .5 });
 function buildPickup(type) {
-  const g = new T.Group(), d = PK[type], gl = glow(d.col), dk = mat(0x20233c, 0, 60);
-  if (type === 'hp') { bx(g, .5, .36, .3, mat(0xe9ecff, 0x222222)); bx(g, .3, .1, .32, gl); bx(g, .1, .3, .32, gl); }
-  else if (type === 'armor') { bx(g, .5, .5, .12, dk); bx(g, .34, .34, .14, gl); }
-  else if (type === 'grenade') { const s = new T.Mesh(new T.IcosahedronGeometry(.2, 1), mat(0x2f3d2c)); g.add(s); bx(g, .42, .05, .42, gl); }
-  else if (type === 'stim') { const c = new T.Mesh(new T.CylinderGeometry(.07, .07, .46, 10), gl); c.rotation.z = .5; g.add(c); }
-  else if (d.weapon) {
-    bx(g, .14, .2, 1.1, dk); bx(g, .15, .05, .7, gl, 0, .05, 0); bx(g, .1, .25, .12, dk, 0, -.2, .3);
-    const beam = new T.Mesh(new T.CylinderGeometry(.18, .18, WALLH, 10, 1, true), new T.MeshBasicMaterial({ color: d.col, transparent: true, opacity: .22, side: T.DoubleSide, depthWrite: false }));
-    beam.position.y = WALLH / 2 - 1; beam.userData.still = true; g.add(beam);
-  } else { bx(g, .46, .3, .3, dk); bx(g, .48, .08, .32, gl, 0, .06, 0); }
+  const g = new T.Group(), d = PK[type], gl = glow(d.col);
+  if (type === 'hp') { add(g, rboxG(.52, .36, .3, .07), M_WHITE); add(g, rboxG(.3, .1, .32, .03), gl); add(g, rboxG(.1, .3, .32, .03), gl); add(g, torG(.08, .02, PI, 12), M_GUN, 0, .18, 0); }
+  else if (type === 'armor') { const p = [[-.24, .22], [0, .28], [.24, .22], [.24, -.02], [0, -.3], [-.24, -.02]]; add(g, profG('arm', p, .1, .03), M_GUN).rotation.y = PI / 2; add(g, profG('arm2', p.map(q => [q[0] * .6, q[1] * .6]), .14, .02), gl).rotation.y = PI / 2; }
+  else if (type === 'p9') { for (let i = 0; i < 3; i++) { const x = (i - 1) * .14; add(g, cylG(.05, .05, .26, 12), M_BRASS, x, -.05, 0); add(g, capG(.05, .08, .02), M_STEEL, x, .13, 0); } }
+  else if (type === 'sh') { for (let i = 0; i < 3; i++) { const x = (i - 1) * .16; add(g, cylG(.065, .065, .28, 14), std(0xd23a3a, { metalness: .2, roughness: .5 }), x, .03, 0); add(g, cylG(.068, .068, .09, 14), M_BRASS, x, -.15, 0); } }
+  else if (type === 'cl') { add(g, cylG(.14, .14, .4, 18), M_GUN); add(g, cylG(.145, .145, .16, 18), gl); for (const y of [-.2, .2]) add(g, cylG(.1, .15, .06, 18), M_STEEL, 0, y, 0).rotation.x = y > 0 ? 0 : PI; }
+  else if (type === 'grenade') { const s = new T.Group(); GUNS.grenade(s); s.scale.setScalar(3.4); s.position.y = -.2; g.add(s); }
+  else if (type === 'stim') { const s = new T.Group(); GUNS.stim(s); s.scale.setScalar(2.8); s.rotation.z = .5; s.position.set(.1, -.2, 0); g.add(s); }
+  else {
+    const s = new T.Group(); GUNS[type](s); s.scale.setScalar(1.7); s.position.set(0, -.05, .35); g.add(s);
+    const beam = add(g, new T.CylinderGeometry(.18, .18, WALLH, 14, 1, true), new T.MeshBasicMaterial({ color: d.col, transparent: true, opacity: .22, side: T.DoubleSide, depthWrite: false }), 0, WALLH / 2 - 1, 0);
+    beam.userData.still = true;
+  }
   return g;
 }
 
@@ -797,7 +904,7 @@ function use() {
   if (id === 'grenade') {
     if (p.grenades <= 0) return false;
     p.grenades--; p.cd = w.cd; p.swing = 1; SFX.throw();
-    const [dx, dy, dz] = aimDir(0), m = new T.Mesh(new T.IcosahedronGeometry(.14, 0), glow(0xff5a3d)); scene.add(m);
+    const [dx, dy, dz] = aimDir(0), m = new T.Mesh(sphG(.14, 12), glow(0xff5a3d)); scene.add(m);
     shots.push({ kind: 'g', x: p.x + dx * .6, y: eyeY() - .15, z: p.z + dz * .6, vx: dx * 17 + p.vx * .5, vy: dy * 17 + 4, vz: dz * 17 + p.vz * .5, life: 1.7, m, r: .14 });
     return true;
   }
@@ -812,6 +919,7 @@ function use() {
   flashQuad.material.color.set(id === 'plasma' ? 0x60f0ff : 0xffffff);
   muzzleLight.color.set(id === 'plasma' ? 0x3df5ff : 0xffc070); muzzleLight.intensity = id === 'shotgun' ? 3.2 : 2;
   const [mx, my, mz] = muzzleWorld(), oy = eyeY();
+  if (id !== 'plasma') burst(mx + Math.cos(p.yaw) * .15, my, mz - Math.sin(p.yaw) * .15, 0xd9a441, 1, 2.2, .7, .05);
   if (id === 'plasma') {
     SFX.plasma(); const [dx, dy, dz] = aimDir(w.spread), m = new T.Mesh(shotGeo, glow(0x7ff8ff)); m.scale.setScalar(.6); scene.add(m);
     shots.push({ kind: 'p', x: mx, y: my, z: mz, vx: dx * 46, vy: dy * 46, vz: dz * 46, life: 1.6, m, r: .15, dmg: w.dmg });
@@ -970,7 +1078,7 @@ function updateEnemies(dt) {
     }
     moveEnt(e, (mx * speed + e.kx) * dt, (mz * speed + e.kz) * dt, e.r * .8);
     const kd = Math.pow(.004, dt); e.kx *= kd; e.kz *= kd;
-    setBounds(e); e.g.position.set(e.x, e.fly ? e.y : 0, e.z);
+    setBounds(e); e.g.position.set(e.x, e.fly ? e.y : 0, e.z); if (e.fly) e.P.shadow.position.y = .03 - e.y;
     const face = Math.atan2(sees ? dx : mx || dx, sees ? dz : mz || dz); let da = face - e.g.rotation.y; da = Math.atan2(Math.sin(da), Math.cos(da)); e.g.rotation.y += da * Math.min(1, dt * 8);
   }
   for (let i = 0; i < enemies.length; i++) for (let j = i + 1; j < enemies.length; j++) {
@@ -1137,6 +1245,7 @@ function hud() {
   $('hitm').style.opacity = clamp(p.hitT / .14, 0, 1);
   $('vig').style.opacity = Math.max(p.hurtT, p.hp < 30 && state === 'play' ? .35 + Math.sin(time * 6) * .12 : 0);
   $('heal').style.opacity = p.healT;
+  const boss = enemies.find(e => e.type === 'boss'); $('bossbar').hidden = !boss; if (boss) $('bossfill').style.width = Math.max(0, boss.hp / boss.maxHp * 100) + '%';
   const dd = $('dmgdir'); dd.style.opacity = p.dmgT; dd.style.transform = 'rotate(' + p.dmgA + 'rad)';
   $('ann').style.opacity = clamp(annT > 2.4 ? (2.8 - annT) / .4 : annT / .6, 0, 1);
   $('toast').style.opacity = clamp(toastT / .4, 0, 1);
@@ -1173,7 +1282,10 @@ if (location.hash === '#test') window.__t = {
   face() { const e = enemies[0]; if (!e) return false; p.yaw = Math.atan2(-(e.x - p.x), -(e.z - p.z)); const d = Math.hypot(e.x - p.x, e.z - p.z); p.pitch = Math.atan2((e.y0 + e.y1) / 2 - eyeY(), d); return los(p.x, eyeY(), p.z, e.x, (e.y0 + e.y1) / 2, e.z); },
   tpNear() { const e = enemies[0]; if (e) { p.x = e.x; p.z = e.z + 2.2; if (blocked(p.x, p.z, p.r)) p.z = e.z - 2.2; } },
   step(n) { for (let i = 0; i < n; i++) { update(1 / 30); updateFx(1 / 30); } }, fire(v) { fireDown = v; },
-  hurt(d) { hurtPlayer(d); }, god() { p.hp = 100; p.armor = 100; }
+  hurt(d) { hurtPlayer(d); },
+  show(type, dist) { enemies.slice().forEach(e => { e.dead = true; scene.remove(e.g); }); enemies = []; queue = [type]; spawnT = 0; p.x = 12.5 * CELL; p.z = 15.5 * CELL; buildFlow(p.x, p.z);
+    spawnEnemy(type); queue = []; const e = enemies[0]; e.x = p.x + .6; e.z = p.z - dist; e.born = 1; e.sp = 0; e.cd = 99; e.t1 = 99; e.t3 = 99; e.g.rotation.y = .5; for (const q of pd) q.life = 0; p.yaw = 0; p.pitch = type === 'hound' ? -.25 : 0; },
+  drop() { let i = 0; for (const k in PK) dropPickup(k, p.x - 3 + i++ * .8, p.z - 3.5); p.yaw = 0; p.pitch = -.2; }, god() { p.hp = 100; p.armor = 100; }
 };
 })();
 </script>
