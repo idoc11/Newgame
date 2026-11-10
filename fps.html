@@ -500,9 +500,12 @@ let renderer;
 try { renderer = new T.WebGLRenderer({ canvas: cv, antialias: true, powerPreference: 'high-performance' }); }
 catch (e) { $('lobby').hidden = true; $('err').hidden = false; return; }
 const scene = new T.Scene(), vmScene = new T.Scene();
-{ const es = new T.Scene(); es.add(new T.Mesh(new T.SphereGeometry(20, 16, 12), new T.MeshBasicMaterial({ color: 0x2a2b2c, side: T.BackSide })));
+function buildEnv() { const es = new T.Scene(); es.add(new T.Mesh(new T.SphereGeometry(20, 16, 12), new T.MeshBasicMaterial({ color: 0x2a2b2c, side: T.BackSide })));
   for (const [c, x, y, z, r] of [[0xfff4e0, 0, 14, 0, 6], [0xcfd8e0, -14, 3, -6, 5], [0xb0a890, 14, 2, 6, 5], [0x70706a, 0, -6, -15, 6]]) { const q = new T.Mesh(new T.BoxGeometry(r, r, r), new T.MeshBasicMaterial({ color: c })); q.position.set(x, y, z); es.add(q); }
   const pm = new T.PMREMGenerator(renderer), env = pm.fromScene(es, .03).texture; scene.environment = env; vmScene.environment = env; pm.dispose(); }
+buildEnv();
+cv.addEventListener('webglcontextlost', e => e.preventDefault());
+cv.addEventListener('webglcontextrestored', () => { try { const ac = renderer.autoClear; renderer.autoClear = true; buildEnv(); renderer.autoClear = ac; resize(); } catch (e) {} });
 renderer.autoClear = false;
 scene.background = new T.Color(0x0e0f10);
 scene.fog = new T.Fog(0x121314, 10, 58);
@@ -518,7 +521,11 @@ addEventListener('resize', resize); resize();
 
 function canvasTex(size, draw, rx = 1, ry = 1) {
   const c = document.createElement('canvas'); c.width = c.height = size; draw(c.getContext('2d'), size);
-  const t = new T.CanvasTexture(c); t.wrapS = t.wrapT = T.RepeatWrapping; t.repeat.set(rx, ry); t.anisotropy = 4; return t;
+  /* keep pixels in plain memory: a canvas can be wiped when the GPU process resets, which turned every surface black */
+  const src = c.getContext('2d').getImageData(0, 0, size, size).data, px = new Uint8Array(src.length), row = size * 4;
+  for (let y = 0; y < size; y++) px.set(src.subarray(y * row, y * row + row), (size - 1 - y) * row);
+  const t = new T.DataTexture(px, size, size, T.RGBAFormat); t.magFilter = T.LinearFilter; t.minFilter = T.LinearMipmapLinearFilter; t.generateMipmaps = true;
+  t.wrapS = t.wrapT = T.RepeatWrapping; t.repeat.set(rx, ry); t.anisotropy = 4; t.needsUpdate = true; return t;
 }
 const speckle = (g, s, n, a) => { for (let i = 0; i < n; i++) { g.fillStyle = 'rgba(' + (Math.random() < .5 ? '255,255,255' : '0,0,0') + ',' + rand(a * .3, a) + ')'; g.fillRect(rand(0, s), rand(0, s), rand(1, 5), rand(1, 5)); } };
 const wallTex = canvasTex(256, (g, s) => {
@@ -1569,7 +1576,7 @@ if (location.hash === '#test') window.__t = {
   face() { const e = enemies[0]; if (!e) return false; p.yaw = Math.atan2(-(e.x - p.x), -(e.z - p.z)); const d = Math.hypot(e.x - p.x, e.z - p.z); p.pitch = Math.atan2((e.y0 + e.y1) / 2 - eyeY(), d); return true; },
   tpNear() { const e = enemies[0]; if (e) { p.x = e.x; p.z = e.z + 2.2; if (blocked(p.x, p.z, p.r)) p.z = e.z - 2.2; } },
   step(n) { for (let i = 0; i < n; i++) { update(1 / 30); updateFx(1 / 30); } }, fire(v) { fireDown = v; }, aim(v) { aimHeld = v; }, sw(id) { switchTo(id); },
-  hurt(d) { hurtPlayer(d, undefined, undefined, true); }, god() { p.hp = 100; p.armor = 100; },
+  hurt(d) { hurtPlayer(d, undefined, undefined, true); }, gl: () => renderer.getContext(), god() { p.hp = 100; p.armor = 100; },
   show(type, dist) { enemies.slice().forEach(e => { e.dead = true; scene.remove(e.g); }); enemies = []; p.x = 4.5 * CELL; p.z = 15.5 * CELL; buildFlow(p.x, p.z); spawnEnemy(type); queue = [];
     const e = enemies[0]; e.x = p.x + .4; e.z = p.z - dist; e.born = 1; e.sp = 0; e.cd = 99; e.t1 = 99; e.t3 = 99; e.g.rotation.y = .6; for (const q of pd) q.life = 0; p.yaw = 0; p.pitch = type === 'hound' ? -.2 : type === 'boss' ? .12 : 0; },
   barrels: () => barrels.length, boom() { if (barrels[0]) hurtBarrel(barrels[0], 999); }, crouch(v) { crouchTog = v; }, eye: () => eyeY(),
