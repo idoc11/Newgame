@@ -12,6 +12,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	webview2 "github.com/jchv/go-webview2"
 )
@@ -28,6 +30,9 @@ var (
 // Постоянный порт нужен, чтобы рекорд (localStorage) сохранялся между запусками.
 var fixedAddr = "127.0.0.1:47813"
 
+// Страница шлёт /ping каждые 10 секунд. По нему в режиме браузера понятно, что вкладку закрыли.
+var lastPing atomic.Int64
+
 func serve() (string, error) {
 	ln, err := net.Listen("tcp", fixedAddr)
 	if err != nil {
@@ -36,6 +41,10 @@ func serve() (string, error) {
 		}
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
+		lastPing.Store(time.Now().Unix())
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimPrefix(r.URL.Path, "/")
 		if name == "" {
@@ -83,7 +92,18 @@ func main() {
 	if w == nil {
 		// WebView2 не установлен: открываем игру в браузере и продолжаем её раздавать.
 		exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
-		select {}
+		// Ждём, пока вкладка жива: без пингов три минуты подряд — выходим, чтобы не висеть в фоне.
+		start := time.Now()
+		for {
+			time.Sleep(5 * time.Second)
+			lp := lastPing.Load()
+			if lp == 0 && time.Since(start) > 3*time.Minute {
+				return
+			}
+			if lp != 0 && time.Now().Unix()-lp > 180 {
+				return
+			}
+		}
 	}
 	defer w.Destroy()
 	w.Navigate(url)

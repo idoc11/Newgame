@@ -29,7 +29,7 @@ body{margin:0;background:var(--void);color:var(--ink);font-family:var(--body);fo
 #view{position:fixed;inset:0;width:100%;height:100%;display:block}
 #hud{position:fixed;inset:0;pointer-events:none;z-index:2;font-variant-numeric:tabular-nums;text-shadow:0 1px 3px rgba(0,0,0,.9)}
 .corner,#ann,#toast,#lobcol,.panel{zoom:var(--ui,1)}
-.corner{position:absolute;display:flex;flex-direction:column;gap:6px}
+.corner{position:absolute;display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:rgba(8,9,8,.42)}
 .bl{left:max(16px,env(safe-area-inset-left,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px))}
 .br{right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));align-items:flex-end;text-align:right}
 .tl{left:max(16px,env(safe-area-inset-left,0px));top:calc(14px + env(safe-area-inset-top,0px))}
@@ -48,7 +48,7 @@ body.touch #slots{display:none}
 #wname{font-family:var(--display);font-size:16px;letter-spacing:.06em;color:var(--amber);text-transform:uppercase}
 #ammo small{font-family:var(--body);font-size:16px;font-weight:700;color:var(--dim);margin-left:6px}
 #slots{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end;max-width:min(460px,60vw)}
-#slots span{font-size:11px;font-weight:700;letter-spacing:.05em;padding:3px 7px;border:1px solid var(--line);color:var(--dim);background:rgba(0,0,0,.45);text-shadow:none}
+#slots span{font-size:12px;font-weight:700;letter-spacing:.05em;padding:3px 7px;border:1px solid var(--line);color:var(--dim);background:rgba(0,0,0,.45);text-shadow:none}
 #slots span.on{color:var(--void);background:var(--amber);border-color:var(--amber)}
 #slots span.no{opacity:.3}
 #wave{font-family:var(--display);font-size:18px;letter-spacing:.06em;text-transform:uppercase}
@@ -101,6 +101,12 @@ button:disabled{opacity:.4;cursor:default}
 button.go{font-family:var(--display);font-weight:600;font-size:22px;letter-spacing:.1em;text-transform:uppercase;color:var(--void);background:var(--amber);border-color:var(--amber);padding:14px 40px;text-align:center}
 button.go:hover{filter:brightness(1.1)}
 button.sel{border-color:var(--amber);background:rgba(224,160,48,.14)}
+button.sel:not(.card)::before{content:"✓ ";color:var(--amber)}
+.card.sel b::after{content:" ✓";color:var(--amber)}
+#tabs button.sel::before{content:none}
+body.touch #lobby button,body.touch .overlay button{min-height:44px}
+#hint{position:absolute;left:0;right:0;top:calc(50% + 44px);text-align:center;font-weight:700;font-size:14px;letter-spacing:.06em;color:var(--amber)}
+h2:focus{outline:none}
 .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;width:100%;background:var(--line);border:1px solid var(--line)}
 .stats div{background:var(--panel);padding:14px 6px;display:flex;flex-direction:column;gap:4px;min-width:0}
@@ -139,13 +145,13 @@ input[type=range]{width:100%;accent-color:var(--amber);touch-action:pan-x}
 #tRel{right:calc(120px + env(safe-area-inset-right,0px));bottom:calc(170px + env(safe-area-inset-bottom,0px))}
 #tSwap{right:calc(40px + env(safe-area-inset-right,0px));bottom:calc(218px + env(safe-area-inset-bottom,0px))}
 #tAim{right:calc(110px + env(safe-area-inset-right,0px));bottom:calc(244px + env(safe-area-inset-bottom,0px))}
-#tPause{right:calc(14px + env(safe-area-inset-right,0px));top:calc(70px + env(safe-area-inset-top,0px));width:42px !important;height:42px !important}
+#tPause{right:calc(14px + env(safe-area-inset-right,0px));top:calc(70px + env(safe-area-inset-top,0px));width:44px !important;height:44px !important}
 #stick{position:absolute;width:104px;height:104px;margin:-52px;border:2px solid rgba(232,230,223,.4);border-radius:50%}
 #stick i{position:absolute;left:50%;top:50%;width:44px;height:44px;margin:-22px;border-radius:50%;background:rgba(232,230,223,.5)}
 </style>
 </head>
 <body>
-<canvas id="view"></canvas>
+<canvas id="view" role="img" aria-label="Игровое поле"></canvas>
 
 <div id="hud" hidden>
   <div id="vig"></div><div id="heal"></div><div id="dmgdir"></div>
@@ -153,6 +159,7 @@ input[type=range]{width:100%;accent-color:var(--amber);touch-action:pan-x}
   <div id="cross" style="--g:6px"><i></i><i></i><i></i><i></i><i></i></div>
   <div id="ret" hidden></div>
   <div id="hitm"></div>
+  <div id="hint" aria-live="polite"></div>
   <div class="corner tl"><span class="lab">Очки</span><span class="big" id="score">0</span></div>
   <div class="corner tc"><span id="wave">Волна 1</span><span class="lab" id="left"></span>
     <div id="bossbar" hidden><div class="meter"><i id="bossfill"></i></div><span class="lab" id="bossname" style="color:var(--red)"></span></div></div>
@@ -214,7 +221,7 @@ input[type=range]{width:100%;accent-color:var(--amber);touch-action:pan-x}
 
 <div class="overlay" id="over" hidden>
   <div class="panel">
-    <h2 id="overTitle">Ты погиб</h2>
+    <h2 id="overTitle" tabindex="-1">Ты погиб</h2>
     <p class="sub" id="overSub"></p>
     <div class="stats">
       <div><span>Очки</span><b id="oScore">0</b></div>
@@ -255,7 +262,7 @@ const GUN = {
   sniper:   { name: 'Винтовка СВ-8', short: 'СВ-8', cls: 'main', cd: 1.1, dmg: 240, pellets: 1, mag: 5, rel: 2.3, spread: .0006, kick: 2.2, price: 1400, res: 30, scope: true, desc: 'Оптика 6×. Пуля пробивает несколько целей.' },
   lmg:      { name: 'Пулемёт РП-60', short: 'РП-60', cls: 'main', cd: .085, dmg: 24, pellets: 1, mag: 80, rel: 3.4, spread: .014, kick: .55, price: 1800, res: 240, slow: .88, desc: 'Лента на 80 патронов. Тяжёлый, долго заряжается.' },
   grenade:  { name: 'Граната', short: 'Граната', cls: 'gear', cd: .8 },
-  medkit:   { name: 'Шприц-тюбик', short: 'Аптечка', cls: 'gear', cd: 1.1 }
+  medkit:   { name: 'Шприц-тюбик', short: 'Шприц', cls: 'gear', cd: 1.1 }
 };
 const SIGHT = {
   iron:  { name: 'Мушка', zoom: 1.2, h: .012, price: 0, desc: 'Штатный открытый прицел.' },
@@ -292,6 +299,17 @@ const DIFF = {
 let save = { cr: 300, guns: ['pistol', 'smg'], sights: ['iron'], skins: ['std'], gloves: ['black'],
   eq: { side: 'pistol', a: 'smg', b: null, skin: 'std', glove: 'black', sight: {} }, mode: 'survival', diff: 'normal', map: 'a', best: {}, set: { sens: 1, vol: 1, fov: 78 }, con: [], up: {}, xp: 0 };
 try { const s = JSON.parse(localStorage.getItem('sectorzero.save') || 'null'); if (s && s.eq) save = Object.assign(save, s); } catch (e) {}
+function sanitize() {
+  const arr = (v, def, ok) => { v = Array.isArray(v) ? v.filter(x => ok[x]) : []; for (const d of def) if (!v.includes(d)) v.unshift(d); return v; };
+  save.guns = arr(save.guns, ['smg', 'pistol'], GUN); save.sights = arr(save.sights, ['iron'], SIGHT); save.skins = arr(save.skins, ['std'], SKIN); save.gloves = arr(save.gloves, ['black'], GLOVE);
+  const e = save.eq = Object.assign({ side: 'pistol', a: 'smg', b: null, skin: 'std', glove: 'black', sight: {} }, save.eq && typeof save.eq === 'object' ? save.eq : {});
+  const own = (id, cls) => save.guns.includes(id) && GUN[id].cls === cls;
+  if (!own(e.side, 'side')) e.side = 'pistol'; if (!own(e.a, 'main')) e.a = 'smg'; if (!own(e.b, 'main') || e.b === e.a) e.b = null;
+  if (!save.skins.includes(e.skin)) e.skin = 'std'; if (!save.gloves.includes(e.glove)) e.glove = 'black'; if (!e.sight || typeof e.sight !== 'object') e.sight = {};
+  if (!MODE[save.mode]) save.mode = 'survival'; if (!DIFF[save.diff]) save.diff = 'normal'; save.cr = Math.max(0, Math.floor(+save.cr || 0)); save.xp = Math.max(0, +save.xp || 0);
+  for (const k of ['best', 'up', 'st']) if (!save[k] || typeof save[k] !== 'object') save[k] = {};
+}
+sanitize();
 function persist() { try { localStorage.setItem('sectorzero.save', JSON.stringify(save)); } catch (e) {} }
 const BASE = {}; for (const id in GUN) if (GUN[id].mag) BASE[id] = { dmg: GUN[id].dmg, mag: GUN[id].mag };
 function applyUpgrades() { for (const id in BASE) { const u = save.up[id] || {}; GUN[id].dmg = BASE[id].dmg * (1 + .1 * (u.d || 0)); GUN[id].mag = Math.round(BASE[id].mag * (1 + .15 * (u.m || 0))); } }
@@ -906,7 +924,7 @@ let state = 'menu', p, enemies, shots, pickups, wave, queue, spawnT, restT, scor
 let locked = false, everLocked = false, fallback = false, touchMode = false, aimHeld = false, crouchTog = false;
 
 function clearWorld() {
-  for (const e of enemies || []) scene.remove(e.g);
+  for (const e of enemies || []) { scene.remove(e.g); for (const m of e.mats) m.dispose(); }
   for (const s of shots || []) scene.remove(s.m);
   for (const k of pickups || []) scene.remove(k.g);
   for (const t of tracers) { scene.remove(t.l); t.l.geometry.dispose(); }
@@ -979,7 +997,7 @@ addEventListener('keydown', e => {
   } else if (state === 'perk') { const n = ['Digit1', 'Digit2', 'Digit3'].indexOf(k), b = n >= 0 && $('perkCards').children[n]; if (b) b.click();
   } else if (state === 'pause') { if (k === 'KeyP' || k === 'Enter') setPause(false); }
   if (k === 'KeyM') toggleMute();
-  if (k.startsWith('Arrow') || k === 'Tab') e.preventDefault();
+  if (state === 'play' && (k.startsWith('Arrow') || k === 'Tab')) e.preventDefault();
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; fireDown = false; aimHeld = false; if (state === 'play') setPause(true); });
@@ -1014,17 +1032,18 @@ tap('tSwap', () => state === 'play' && cycle(1)); tap('tPause', () => state === 
 tap('tAim', () => { aimHeld = !aimHeld; });
 
 /* ───────────── lobby ───────────── */
-let tabId = 'play', lobbySel = save.eq.a || save.eq.side;
+let lastTab = 'play', tabId = 'play', lobbySel = save.eq.a || save.eq.side;
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
 function sec(title) { const s = el('div', 'sec'); s.appendChild(el('h3', '', title)); $('tab').appendChild(s); return s; }
-function card(par, title, lines, on, sel, dis) { const b = el('button', 'card' + (sel ? ' sel' : '')); b.type = 'button'; b.appendChild(el('b', '', title)); for (const l of [].concat(lines)) if (l) b.appendChild(typeof l === 'string' ? el('span', '', l) : l); if (dis) b.disabled = true; b.addEventListener('click', () => { initAudio(); on(); }); par.appendChild(b); return b; }
+function card(par, title, lines, on, sel, dis) { const b = el('button', 'card' + (sel ? ' sel' : '')); b.type = 'button'; if (sel !== undefined) b.setAttribute('aria-pressed', !!sel); b.appendChild(el('b', '', title)); for (const l of [].concat(lines)) if (l) b.appendChild(typeof l === 'string' ? el('span', '', l) : l); if (dis) b.disabled = true; b.addEventListener('click', () => { initAudio(); on(); }); par.appendChild(b); return b; }
 function chipLine(col, text) { const s = el('span'); const c = el('i', 'chip'); c.style.background = '#' + col.toString(16).padStart(6, '0'); s.appendChild(c); s.appendChild(document.createTextNode(text)); return s; }
 function buy(price, fn) { if (save.cr < price) return; save.cr -= price; fn(); persist(); SFX.buy(); renderLobby(); }
 function renderLobby() {
   applyUpgrades(); newContracts();
+  const fq0 = [...document.querySelectorAll('#lobby button, #lobby input')], fi = fq0.indexOf(document.activeElement), ftab = tabId + (fi >= 0 ? fq0[fi].id || '' : '');
   $('cr').textContent = save.cr + ' ₡'; $('rank').textContent = 'Звание: ' + RANKS[rankOf()] + (rankOf() < RANKS.length - 1 ? ' · до следующего ' + (1500 * (rankOf() + 1) ** 2 - (save.xp || 0)) + ' очков' : '');
   const tabs = $('tabs'); tabs.textContent = '';
-  for (const [id, name] of [['play', 'Играть'], ['inv', 'Инвентарь'], ['shop', 'Магазин'], ['set', 'Настройки']]) { const b = el('button', id === tabId ? 'sel' : '', name); b.type = 'button'; b.addEventListener('click', () => { tabId = id; renderLobby(); }); tabs.appendChild(b); }
+  for (const [id, name] of [['play', 'Играть'], ['inv', 'Инвентарь'], ['shop', 'Магазин'], ['set', 'Настройки']]) { const b = el('button', id === tabId ? 'sel' : '', name); b.type = 'button'; b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', id === tabId); b.addEventListener('click', () => { tabId = id; renderLobby(); }); tabs.appendChild(b); }
   const tab = $('tab'); tab.textContent = '';
   if (tabId === 'play') {
     let s = sec('Режим'), g = el('div', 'grid'); s.appendChild(g);
@@ -1059,7 +1078,7 @@ function renderLobby() {
     s = sec('Перчатки'); g = el('div', 'grid'); s.appendChild(g);
     for (const id of save.gloves) card(g, GLOVE[id].name, chipLine(GLOVE[id].col, 'перчатки и рукава'), () => { save.eq.glove = id; persist(); renderLobby(); }, save.eq.glove === id);
   } else if (tabId === 'set') {
-    const slider = (title, key, min, max, step, fmt, on) => { const s = sec(title + ': ' + fmt(save.set[key])), r = el('input'); r.type = 'range'; r.id = 'set_' + key; r.min = min; r.max = max; r.step = step; r.value = save.set[key];
+    const slider = (title, key, min, max, step, fmt, on) => { const s = sec(title + ': ' + fmt(save.set[key])), r = el('input'); r.type = 'range'; r.id = 'set_' + key; r.min = min; r.max = max; r.step = step; r.value = save.set[key]; r.setAttribute('aria-label', title);
       r.addEventListener('input', () => { save.set[key] = +r.value; s.firstChild.textContent = title + ': ' + fmt(save.set[key]); persist(); if (on) on(); }); s.appendChild(r); };
     slider('Чувствительность мыши', 'sens', .2, 3, .05, v => v.toFixed(2));
     slider('Громкость', 'vol', 0, 1.5, .05, v => Math.round(v * 100) + '%', () => { initAudio(); if (master) master.gain.value = .34 * save.set.vol; SFX.hit(); });
@@ -1085,12 +1104,17 @@ function renderLobby() {
     shop('Перчатки', GLOVE, save.gloves, id => chipLine(GLOVE[id].col, 'перчатки и рукава'), id => { save.gloves.push(id); save.eq.glove = id; });
   }
   applySkin(); fitSights();
+  $('tabs').setAttribute('role', 'tablist');
+  if (fi >= 0 && lastTab === tabId) { const q = [...document.querySelectorAll('#lobby button, #lobby input')]; const t = q[Math.min(fi, q.length - 1)]; if (t && !t.disabled) t.focus(); else if (t) { const n = q.slice(fi).find(x => !x.disabled) || q.find(x => !x.disabled); if (n) n.focus(); } }
+  else if (fi >= 0) { const t = document.querySelector('#tabs button.sel'); if (t) t.focus(); }
+  lastTab = tabId;
 }
 
 /* ───────────── flow ───────────── */
-function show(id) { for (const o of ['lobby', 'pause', 'over', 'perk']) $(o).hidden = o !== id; $('hud').hidden = state === 'menu'; $('touch').hidden = !(touchMode && state === 'play'); }
+function show(id) { for (const o of ['lobby', 'pause', 'over', 'perk']) $(o).hidden = o !== id; $('hud').hidden = state === 'menu'; $('touch').hidden = !(touchMode && state === 'play');
+  if (id === 'pause') $('btnResume').focus(); else if (id === 'over') $('overTitle').focus(); else if (!id && document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
 function toLobby() { reset(); state = 'menu'; renderLobby(); show('lobby'); }
-function startGame() { initAudio(); reset(); state = 'play'; show(null); $('modelab').textContent = M.name + ' · ' + D.name; requestLock(); nextWave(); }
+function startGame() { initAudio(); reset(); state = 'play'; show(null); $('modelab').textContent = M.name + ' · ' + D.name; requestLock(); nextWave(); if (!save.st.games) { toast('ПКМ — прицел · R — перезарядка · C — присесть · G — граната'); toastT = 7; } }
 function setPause(on) {
   if (on && state === 'play') { state = 'pause'; fireDown = false; aimHeld = false; show('pause'); pauseSync(); }
   else if (!on && state === 'pause') { state = 'play'; show(null); requestLock(); last = performance.now(); }
@@ -1307,7 +1331,7 @@ function hurtEnemy(e, dmg, nx, nz, head, hx, hy, hz) {
 }
 function killEnemy(e) {
   e.dead = true; kills++; const d = ET[e.type], lv = M.time ? 1 + hordeT / 30 : wave; p.streak++; p.streakT = 4; const sb = Math.min(p.streak - 1, 5) * .2; score = Math.round(score + d.score * (1 + (lv - 1) * .1) * (1 + sb)); if (p.streak >= 3) toast('Серия ×' + p.streak + '  +' + Math.round(sb * 100) + '% очков');
-  scene.remove(e.g); const cy = (e.y0 + e.y1) / 2;
+  scene.remove(e.g); for (const m of e.mats) m.dispose(); const cy = (e.y0 + e.y1) / 2;
   burst(e.x, cy, e.z, e.col, e.type === 'boss' ? 90 : 16, e.type === 'boss' ? 12 : 6, 1, .16); burst(e.x, cy, e.z, 0x2a2a2a, 12, 5, 1.1, .2); burst(e.x, cy, e.z, 0xffa040, 8, 6, .35, .08);
   SFX.kill(); shake += e.type === 'brute' ? .3 : .08; conAdd('kills'); conAdd(e.type); if (p.pk.leech && p.hp > 0) p.hp = Math.min(100, p.hp + p.pk.leech);
   if (e.type === 'mine') explode(e.x, .4, e.z, 4, 90, 14);
@@ -1386,7 +1410,7 @@ function updateEnemies(dt) {
       }
     } else if (e.type === 'mine') {
       mx = tx; mz = tz; e.P.eye.visible = Math.sin(e.t * (e.fuse > 0 ? 40 : 6)) > 0;
-      if (e.fuse > 0) { speed = 0; e.fuse -= dt; if (e.fuse <= 0) { e.dead = true; scene.remove(e.g); explode(e.x, .4, e.z, 4.5, 90, 26); } }
+      if (e.fuse > 0) { speed = 0; e.fuse -= dt; if (e.fuse <= 0) { e.dead = true; scene.remove(e.g); for (const m of e.mats) m.dispose(); explode(e.x, .4, e.z, 4.5, 90, 26); } }
       else if (!calm && d < 1.9 && e.born >= 1) { e.fuse = .6; tone('square', 950, 950, .55, .1); }
     } else {
       const rage = e.hp < e.maxHp * .5; mx = tx; mz = tz; if (d < 9) speed = 0; if (rage) speed *= 1.4;
@@ -1534,13 +1558,13 @@ function radar() {
   const g = rctx, C = 112, R = 104, sc = R / 34, cs = Math.cos(p.yaw), sn = Math.sin(p.yaw);
   g.clearRect(0, 0, 224, 224); g.beginPath(); g.arc(C, C, R, 0, TAU); g.fillStyle = 'rgba(0,0,0,.45)'; g.fill(); g.strokeStyle = 'rgba(232,230,223,.3)'; g.lineWidth = 2; g.stroke();
   g.beginPath(); g.arc(C, C, R / 2, 0, TAU); g.strokeStyle = 'rgba(232,230,223,.12)'; g.stroke();
-  const dot = (x, z, col, r) => { const dx = x - p.x, dz = z - p.z; let u = (dx * cs - dz * sn) * sc, v = (-dx * sn - dz * cs) * sc; const d = Math.hypot(u, v); if (d > R - 6) { u *= (R - 6) / d; v *= (R - 6) / d; } g.beginPath(); g.arc(C + u, C - v, r, 0, TAU); g.fillStyle = col; g.fill(); };
-  for (const k of pickups) dot(k.x, k.z, '#86b25c', 4);
+  const dot = (x, z, col, r, sq) => { const dx = x - p.x, dz = z - p.z; let u = (dx * cs - dz * sn) * sc, v = (-dx * sn - dz * cs) * sc; const d = Math.hypot(u, v); if (d > R - 6) { u *= (R - 6) / d; v *= (R - 6) / d; } g.fillStyle = col; if (sq) g.fillRect(C + u - r, C - v - r, r * 2, r * 2); else { g.beginPath(); g.arc(C + u, C - v, r, 0, TAU); g.fill(); } };
+  for (const k of pickups) dot(k.x, k.z, '#86b25c', 3.5, true);
   for (const e of enemies) dot(e.x, e.z, '#d0453a', isBig(e.type) ? 10 : e.type === 'brute' ? 7 : 5);
   g.beginPath(); g.moveTo(C, C - 10); g.lineTo(C + 7, C + 7); g.lineTo(C - 7, C + 7); g.closePath(); g.fillStyle = '#e8e6df'; g.fill();
 }
 /* ───────────── hud ───────────── */
-let slotsKey = '', hudKey = '';
+let slotsKey = '', hudKey = '', hintKey = '';
 function hud() {
   const w = GUN[p.cur], id = p.cur;
   const am = w.mag ? p.mag[id] + '|' + p.res[id] : id === 'grenade' ? p.grenades : id === 'medkit' ? p.medkits : '—';
@@ -1564,7 +1588,8 @@ function hud() {
     ORDER.forEach((o, i) => { if (!o) return; const s = document.createElement('span'); s.textContent = (i + 1) + ' ' + GUN[o].short + (o === 'grenade' ? ' ×' + p.grenades : o === 'medkit' ? ' ×' + p.medkits : '');
       s.className = (o === (p.next || p.cur) ? 'on' : '') + (usable(o) ? '' : ' no'); box.appendChild(s); });
   }
-  radar(); numDraw(state === 'play' ? 1 / 60 : 0);
+  radar(); $('nums').hidden = state !== 'play'; numDraw(state === 'play' ? 1 / 60 : 0);
+  { const w0 = GUN[p.cur], m0 = p.mag[p.cur], h = !w0.mag || p.rel > 0 || p.next || state !== 'play' ? '' : m0 === 0 ? (p.res[p.cur] > 0 ? 'R — перезарядка' : 'Патроны кончились, смени оружие') : m0 <= w0.mag * .25 ? 'Мало патронов' : ''; if (h !== hintKey) { hintKey = h; $('hint').textContent = h; } }
   const sc = scoped(), ads = p.aim > .6 && !!w.mag, sid = sightOf(id);
   $('scope').hidden = !sc; if (sc) $('scope').className = sc === 'acog' ? 'acog' : '';
   $('cross').hidden = ads; const r = $('ret'); r.hidden = !ads || !!sc; if (!r.hidden) r.className = sid;
@@ -1582,7 +1607,7 @@ function hud() {
 /* ───────────── loop ───────────── */
 let last = performance.now();
 function frame(now) {
-  const dt = Math.min(.04, (now - last) / 1000); last = now;
+  const dt = clamp((now - last) / 1000, 0, .04); last = now;
   if (state === 'play') { update(dt); updateFx(dt); }
   else if (state === 'dead') { updateEnemies(dt * .3); updateFx(dt); }
   let showVm = state === 'play' || state === 'pause' || state === 'perk';
@@ -1610,6 +1635,7 @@ function frame(now) {
 }
 reset(); buildFlow(p.x, p.z); renderLobby(); show('lobby');
 requestAnimationFrame(frame);
+if (location.protocol.startsWith('http')) setInterval(() => { fetch('/ping').catch(() => {}); }, 10000);
 
 if (location.hash === '#test') window.__t = {
   get s() { return { state, wave, score, kills, hp: p.hp, cur: p.cur, mag: p.mag, res: p.res, enemies: enemies.length, queue: queue.length, shots: shots.length, pickups: pickups.length, order: ORDER, aim: p.aim, fov: camera.fov, cr: save.cr, hordeT }; },

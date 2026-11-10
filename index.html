@@ -1009,6 +1009,7 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+if (location.protocol.startsWith('http')) setInterval(() => { fetch('/ping').catch(() => {}); }, 10000);
 })();
 </script>
 </body>
