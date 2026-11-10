@@ -4,22 +4,29 @@
 package main
 
 import (
-	_ "embed"
+	"embed"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	webview2 "github.com/jchv/go-webview2"
 )
 
-//go:embed index.html
-var page []byte
+//go:embed index.html fps.html three.min.js
+var files embed.FS
+
+// Задаются при сборке через -ldflags "-X main.startPage=... -X main.title=...".
+var (
+	startPage = "index.html"
+	title     = "Неоновый Разлом"
+)
 
 // Постоянный порт нужен, чтобы рекорд (localStorage) сохранялся между запусками.
-const fixedAddr = "127.0.0.1:47813"
+var fixedAddr = "127.0.0.1:47813"
 
 func serve() (string, error) {
 	ln, err := net.Listen("tcp", fixedAddr)
@@ -30,13 +37,22 @@ func serve() (string, error) {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
+		name := strings.TrimPrefix(r.URL.Path, "/")
+		if name == "" {
+			name = startPage
+		}
+		data, err := files.ReadFile(name)
+		if err != nil {
 			http.NotFound(w, r)
 			return
 		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		ctype := "text/html; charset=utf-8"
+		if strings.HasSuffix(name, ".js") {
+			ctype = "text/javascript; charset=utf-8"
+		}
+		w.Header().Set("Content-Type", ctype)
 		w.Header().Set("Cache-Control", "no-store")
-		w.Write(page)
+		w.Write(data)
 	})
 	go http.Serve(ln, mux)
 	return "http://" + ln.Addr().String() + "/", nil
@@ -58,7 +74,7 @@ func main() {
 		AutoFocus: true,
 		DataPath:  dataDir,
 		WindowOptions: webview2.WindowOptions{
-			Title:  "Неоновый Разлом",
+			Title:  title,
 			Width:  1280,
 			Height: 800,
 			Center: true,
