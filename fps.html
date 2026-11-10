@@ -183,6 +183,7 @@ input[type=range]{width:100%;accent-color:var(--amber);touch-action:pan-x}
 <div id="lobby">
   <div id="lobcol">
     <div id="lobhead"><h1>Сектор <span>Ноль</span></h1><span id="cr">0 ₡</span></div>
+    <span id="rank" class="lab"></span>
     <div id="tabs"></div>
     <div id="tab"></div>
   </div>
@@ -277,9 +278,17 @@ const DIFF = {
   hard:   { name: 'Тяжёлая', hp: 1.3, dmg: 1.25, sp: 1.15, n: 1.3, cr: 1.5 }
 };
 let save = { cr: 300, guns: ['pistol', 'smg'], sights: ['iron'], skins: ['std'], gloves: ['black'],
-  eq: { side: 'pistol', a: 'smg', b: null, skin: 'std', glove: 'black', sight: {} }, mode: 'survival', diff: 'normal', map: 'a', best: {}, set: { sens: 1, vol: 1, fov: 78 } };
+  eq: { side: 'pistol', a: 'smg', b: null, skin: 'std', glove: 'black', sight: {} }, mode: 'survival', diff: 'normal', map: 'a', best: {}, set: { sens: 1, vol: 1, fov: 78 }, con: [], up: {}, xp: 0 };
 try { const s = JSON.parse(localStorage.getItem('sectorzero.save') || 'null'); if (s && s.eq) save = Object.assign(save, s); } catch (e) {}
 function persist() { try { localStorage.setItem('sectorzero.save', JSON.stringify(save)); } catch (e) {} }
+const BASE = {}; for (const id in GUN) if (GUN[id].mag) BASE[id] = { dmg: GUN[id].dmg, mag: GUN[id].mag };
+function applyUpgrades() { for (const id in BASE) { const u = save.up[id] || {}; GUN[id].dmg = BASE[id].dmg * (1 + .1 * (u.d || 0)); GUN[id].mag = Math.round(BASE[id].mag * (1 + .15 * (u.m || 0))); } }
+const RANKS = ['Рядовой', 'Ефрейтор', 'Сержант', 'Старшина', 'Лейтенант', 'Капитан', 'Майор', 'Полковник', 'Генерал'];
+const rankOf = () => Math.min(RANKS.length - 1, Math.floor(Math.sqrt((save.xp || 0) / 1500)));
+const CON = { kills: ['Уничтожь врагов', 40, 150], hound: ['Уничтожь робопсов', 25, 120], drone: ['Сбей квадрокоптеры', 15, 150], brute: ['Уничтожь шагоходы', 6, 200], mine: ['Подорви самоходные мины', 10, 150],
+  boss: ['Сбей вертолёт', 1, 300], head: ['Попади в голову', 25, 180], knife: ['Убей ножом', 6, 160], waves: ['Отбей волны', 8, 200] };
+function newContracts() { if (!Array.isArray(save.con)) save.con = []; if (save.con.length && save.con.some(c => !c.done && CON[c.k])) return; save.con = Object.keys(CON).sort(() => Math.random() - .5).slice(0, 3).map(k => ({ k, p: 0, done: false })); persist(); }
+function conAdd(k, n = 1) { if (M.passive || state !== 'play') return; for (const c of save.con) if (!c.done && c.k === k) { c.p += n; if (c.p >= CON[k][1]) { c.done = true; save.cr += CON[k][2]; toast('Контракт выполнен: +' + CON[k][2] + ' ₡'); SFX.buy(); persist(); } } }
 const sightOf = id => GUN[id].scope ? 'scope' : (save.eq.sight[id] && save.sights.includes(save.eq.sight[id]) ? save.eq.sight[id] : 'iron');
 
 /* ───────────── map ───────────── */
@@ -764,7 +773,8 @@ const ET = {
   hound: { name: 'Робопёс', hp: 40, sp: 4.2, r: .5, h: 1.05, col: 0x8a8f78, score: 20, hh: .3 },
   drone: { name: 'Квадрокоптер', hp: 30, sp: 3.0, r: .5, h: .6, col: 0x9aa0a4, score: 30, fly: 2.0 },
   brute: { name: 'Шагоход', hp: 220, sp: 1.9, r: .85, h: 2.7, col: 0xa89468, score: 90, hh: .5 },
-  boss:  { name: 'Штурмовой вертолёт', hp: 1300, sp: 1.6, r: 1.6, h: 2.0, col: 0x6f7468, score: 1500, fly: 2.7 }
+  boss:  { name: 'Штурмовой вертолёт', hp: 1300, sp: 1.6, r: 1.6, h: 2.0, col: 0x6f7468, score: 1500, fly: 2.7 },
+  mine:  { name: 'Самоходная мина', hp: 18, sp: 4.9, r: .42, h: .75, col: 0x8a8f60, score: 25 }
 };
 const shadowGeo = new T.CircleGeometry(1, 20), shadowMat = new T.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: .4, depthWrite: false });
 const rotorMat = new T.MeshBasicMaterial({ color: 0x202020, transparent: true, opacity: .35, side: T.DoubleSide, depthWrite: false });
@@ -801,6 +811,11 @@ function buildEnemy(type) {
     P.arms = [-1, 1].map(s => { const a = new T.Group(); a.position.set(s * .98, 2.2, 0);
       add(a, rboxG(.44, .5, .6, .07), body); add(a, rboxG(.26, .4, .3, .05), dark, 0, -.4, .05);
       add(a, rboxG(.3, .3, .5, .05), dark, 0, -.72, .2); zc(a, cylG(.07, .07, .7, 10), dark, 0, -.72, .7); zc(a, cylG(.09, .09, .12, 10), M_STEEL, 0, -.72, 1.02); g.add(a); return a; });
+  } else if (type === 'mine') {
+    const body = m(0x5b5f4a, { metalness: .4, roughness: .6 }), dark = m(0x202122, { metalness: .6, roughness: .5 });
+    add(g, rboxG(.6, .22, .74, .06), body, 0, .36, 0); add(g, rboxG(.62, .05, .3, .01), flatc(0xc9a227), 0, .36, 0); add(g, cylG(.2, .25, .12, 12), dark, 0, .52, 0);
+    for (const [sx, z] of [[-1, .24], [1, .24], [-1, -.24], [1, -.24]]) add(g, cylG(.2, .2, .12, 12), dark, sx * .37, .2, z).rotation.z = PI / 2;
+    add(g, cylG(.01, .01, .4, 6), dark, .2, .75, -.2); P.eye = add(g, rboxG(.09, .09, .09, .02), LED, 0, .63, 0);
   } else {
     const body = m(0x5a6050, { metalness: .4, roughness: .55 }), dark = m(0x222325, { metalness: .6, roughness: .5 });
     const core = new T.Group(); g.add(core);
@@ -855,6 +870,7 @@ function clearWorld() {
 }
 function reset() {
   clearWorld();
+  applyUpgrades();
   M = MODE[save.mode] || MODE.survival; D = DIFF[save.diff] || DIFF.normal; buildLevel(); placeBarrels(); const st0 = MAPS[save.map].start;
   const e = save.eq; ORDER = ['knife', e.side, e.a, e.b, 'grenade', 'medkit'];
   p = { x: (st0[0] + .5) * CELL, z: (st0[1] + .5) * CELL, crouch: 0, streak: 0, streakT: 0, y: 0, vy: 0, vx: 0, vz: 0, yaw: 0, pitch: 0, hp: 100, armor: save.diff === 'easy' ? 50 : 0, r: .42,
@@ -959,7 +975,8 @@ function card(par, title, lines, on, sel, dis) { const b = el('button', 'card' +
 function chipLine(col, text) { const s = el('span'); const c = el('i', 'chip'); c.style.background = '#' + col.toString(16).padStart(6, '0'); s.appendChild(c); s.appendChild(document.createTextNode(text)); return s; }
 function buy(price, fn) { if (save.cr < price) return; save.cr -= price; fn(); persist(); SFX.buy(); renderLobby(); }
 function renderLobby() {
-  $('cr').textContent = save.cr + ' ₡';
+  applyUpgrades(); newContracts();
+  $('cr').textContent = save.cr + ' ₡'; $('rank').textContent = 'Звание: ' + RANKS[rankOf()] + (rankOf() < RANKS.length - 1 ? ' · до следующего ' + (1500 * (rankOf() + 1) ** 2 - (save.xp || 0)) + ' очков' : '');
   const tabs = $('tabs'); tabs.textContent = '';
   for (const [id, name] of [['play', 'Играть'], ['inv', 'Инвентарь'], ['shop', 'Магазин'], ['set', 'Настройки']]) { const b = el('button', id === tabId ? 'sel' : '', name); b.type = 'button'; b.addEventListener('click', () => { tabId = id; renderLobby(); }); tabs.appendChild(b); }
   const tab = $('tab'); tab.textContent = '';
@@ -971,7 +988,10 @@ function renderLobby() {
     s = sec('Сложность'); g = el('div', 'row'); g.style.justifyContent = 'flex-start'; s.appendChild(g);
     for (const id in DIFF) { const b = el('button', save.diff === id ? 'sel' : '', DIFF[id].name); b.type = 'button'; b.addEventListener('click', () => { save.diff = id; persist(); renderLobby(); }); g.appendChild(b); }
     s.appendChild(el('p', 'note', save.diff === 'easy' ? 'Враги слабее и бьют вдвое мягче, старт с бронёй. Кредитов меньше.' : save.diff === 'hard' ? 'Врагов больше, они крепче и быстрее. Кредитов в полтора раза больше.' : 'Сбалансированный бой.'));
-    const go = el('button', 'go', 'В бой'); go.type = 'button'; go.id = 'btnStart'; go.addEventListener('click', startGame); tab.appendChild(go);
+    const go = el('button', 'go', 'В бой'); go.type = 'button'; go.id = 'btnStart'; go.addEventListener('click', startGame); tab.insertBefore(go, tab.firstChild);
+    s = sec('Контракты'); g = el('div', 'grid'); s.appendChild(g);
+    for (const c of save.con) { const d = CON[c.k]; if (!d) continue; const b = card(g, d[0], [c.done ? 'Выполнено' : Math.min(c.p, d[1]) + ' / ' + d[1], el('span', 'pr', (c.done ? 'получено ' : '') + d[2] + ' ₡')], () => {}, c.done); b.disabled = true; b.style.opacity = c.done ? .55 : 1; }
+    s.appendChild(el('p', 'note', 'Прогресс идёт во всех режимах, кроме Полигона. Когда выполнишь все три, появятся новые.'));
     s = sec('Управление'); const k = el('div', 'keys'); s.appendChild(k);
     for (const [a, b] of [['WASD', 'ход'], ['SHIFT', 'бег'], ['ЛКМ', 'огонь'], ['ПКМ', 'прицел'], ['R', 'перезарядка'], ['1–6', 'слоты'], ['V', 'нож'], ['G', 'граната'], ['F', 'шприц-тюбик'], ['ПРОБЕЛ', 'прыжок'], ['C', 'присесть (X — зафиксировать)'], ['ESC', 'пауза']]) { const d = el('div'); d.appendChild(el('kbd', '', a)); d.appendChild(document.createTextNode(b)); k.appendChild(d); }
   } else if (tabId === 'inv') {
@@ -985,6 +1005,9 @@ function renderLobby() {
     for (const [n, v] of [['Урон', w.dmg * w.pellets / 240], ['Темп', .07 / w.cd], ['Магазин', w.mag / 80], ['Точность', 1 - w.spread / .07]]) { bars.appendChild(el('span', '', n)); const d = el('div'), i = el('i'); i.style.width = clamp(v * 100, 4, 100) + '%'; d.appendChild(i); bars.appendChild(d); }
     if (w.scope) s.appendChild(el('p', 'note', 'Прицел встроен: оптика 6×.'));
     else { const g = el('div', 'grid'); s.appendChild(g); for (const id of save.sights) card(g, SIGHT[id].name, SIGHT[id].desc, () => { save.eq.sight[lobbySel] = id; persist(); renderLobby(); }, sightOf(lobbySel) === id); }
+    { const us = sec('Улучшения: ' + w.name), ug = el('div', 'grid'); us.appendChild(ug); const u = save.up[lobbySel] || (save.up[lobbySel] = { d: 0, m: 0 });
+      for (const [key, title] of [['d', 'Урон +10%'], ['m', 'Магазин +15%']]) { const lv = u[key] || 0, price = 250 * (lv + 1);
+        card(ug, title, lv >= 3 ? 'Максимум: 3 / 3' : ['Уровень ' + lv + ' / 3', el('span', 'pr', price + ' ₡' + (save.cr < price ? ' · не хватает ' + (price - save.cr) : ''))], () => buy(price, () => { u[key] = lv + 1; }), false, lv >= 3 || save.cr < price); } }
     s = sec('Окраска оружия'); let g = el('div', 'grid'); s.appendChild(g);
     for (const id of save.skins) card(g, SKIN[id].name, chipLine(SKIN[id].col, 'надета на всё оружие'), () => { save.eq.skin = id; persist(); renderLobby(); }, save.eq.skin === id);
     s = sec('Перчатки'); g = el('div', 'grid'); s.appendChild(g);
@@ -1029,14 +1052,14 @@ $('btnQuit').addEventListener('click', () => endGame('quit'));
 let annT = 0, toastT = 0;
 function announce(big, sub, col = '#e0a030') { const a = $('ann'); a.style.setProperty('--c', col); a.firstElementChild.textContent = big; a.lastElementChild.textContent = sub; annT = 2.8; }
 function toast(t) { $('toast').textContent = t; toastT = 1.8; }
-function typeFor(w) { const r = Math.random(); return w >= 4 && r < Math.min(.25, .06 + w * .012) ? 'brute' : w >= 2 && r < .4 ? 'drone' : 'hound'; }
+function typeFor(w) { const r = Math.random(); return w >= 4 && r < Math.min(.25, .06 + w * .012) ? 'brute' : w >= 3 && r > .86 ? 'mine' : w >= 2 && r < .4 ? 'drone' : 'hound'; }
 function nextWave() {
   wave++; queue = []; spawnT = 2; restT = 0;
   if (M.time) { announce('Орда', 'Продержись три минуты до эвакуации'); SFX.wave(); return; }
   const n = Math.max(2, Math.round(Math.min(34, 3 + wave * 1.5) * D.n));
   for (let i = 0; i < n; i++) queue.push(typeFor(wave));
   const boss = wave % 5 === 0 && !M.passive; if (boss) queue.unshift('boss');
-  const hints = { 1: 'Робопсы идут в ближний бой', 2: 'Квадрокоптеры стреляют издалека', 4: 'Шагоходы держат удар. Целься в голову' };
+  const hints = { 1: 'Робопсы идут в ближний бой', 2: 'Квадрокоптеры стреляют издалека', 3: 'Самоходные мины взрываются рядом. Стреляй издалека', 4: 'Шагоходы держат удар. Целься в голову' };
   announce(boss ? 'Вертолёт' : 'Волна ' + wave + (M.waves ? ' из ' + M.waves : ''), boss ? 'Штурмовой борт над сектором' : hints[wave] || (M.passive ? 'Мишени не атакуют' : 'Они продолжают идти'), boss ? '#d0453a' : '#e0a030');
   boss ? SFX.boss() : SFX.wave();
 }
@@ -1044,7 +1067,7 @@ function endGame(why) {
   if (state === 'dead') return;
   const win = why === 'win'; state = 'dead'; fireDown = false; aimHeld = false; win ? SFX.win() : why === 'dead' ? SFX.dead() : 0;
   let cr = M.passive ? 0 : Math.round(score / 8 * D.cr); if (win) cr += Math.round(500 * D.cr);
-  save.cr += cr; const rec = !M.passive && score > (save.best[save.mode] || 0); if (rec) save.best[save.mode] = score; persist();
+  save.cr += cr; if (!M.passive) save.xp = (save.xp || 0) + score; const rec = !M.passive && score > (save.best[save.mode] || 0); if (rec) save.best[save.mode] = score; persist();
   $('overTitle').textContent = win ? 'Победа' : why === 'quit' ? 'Вылазка прервана' : 'Ты погиб';
   $('overSub').textContent = (win ? (M.time ? 'Эвакуация прибыла. ' : 'Сектор зачищен. ') : '') + (rec ? 'Новый рекорд режима. ' : '') + (M.passive ? 'На полигоне кредиты не начисляются.' : 'Кредиты можно потратить в магазине.');
   $('oScore').textContent = score; $('oWave').textContent = wave; $('oKills').textContent = kills; $('oCr').textContent = '+' + cr;
@@ -1104,7 +1127,7 @@ function use() {
     p.cd = w.cd; p.swing = 1; SFX.blade(); let any = false;
     const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw);
     for (const e of enemies.slice()) { const dx = e.x - p.x, dz = e.z - p.z, d = Math.hypot(dx, dz);
-      if (d < 2.5 + e.r && (dx * fx + dz * fz) / (d || 1) > .45) { hurtEnemy(e, 75, fx, fz, false, e.x - fx * e.r, (e.y0 + e.y1) / 2, e.z - fz * e.r); any = true; } }
+      if (d < 2.5 + e.r && (dx * fx + dz * fz) / (d || 1) > .45) { hurtEnemy(e, 75, fx, fz, false, e.x - fx * e.r, (e.y0 + e.y1) / 2, e.z - fz * e.r); any = true; if (e.dead) conAdd('knife'); } }
     if (any) { SFX.bladeHit(); shake += .25; }
     return true;
   }
@@ -1188,7 +1211,7 @@ function eshotDir(x, y, z, dx, dy, dz, sp, dmg) {
 }
 function hurtEnemy(e, dmg, nx, nz, head, hx, hy, hz) {
   if (e.dead) return;
-  e.hp -= dmg; e.flash = .08; e.seen = true;
+  e.hp -= dmg; e.flash = .08; e.seen = true; if (head) conAdd('head');
   const kb = e.type === 'boss' ? 0 : e.type === 'brute' ? 1 : 4; e.kx += nx * kb; e.kz += nz * kb;
   burst(hx, hy, hz, head ? 0xffd070 : 0xffb050, head ? 8 : 4, 4, .3, .05); burst(hx, hy, hz, 0x3a3a38, 2, 2.5, .5, .07);
   if (e.hp <= 0) killEnemy(e);
@@ -1197,7 +1220,8 @@ function killEnemy(e) {
   e.dead = true; kills++; const d = ET[e.type], lv = M.time ? 1 + hordeT / 30 : wave; p.streak++; p.streakT = 4; const sb = Math.min(p.streak - 1, 5) * .2; score = Math.round(score + d.score * (1 + (lv - 1) * .1) * (1 + sb)); if (p.streak >= 3) toast('Серия ×' + p.streak + '  +' + Math.round(sb * 100) + '% очков');
   scene.remove(e.g); const cy = (e.y0 + e.y1) / 2;
   burst(e.x, cy, e.z, e.col, e.type === 'boss' ? 90 : 16, e.type === 'boss' ? 12 : 6, 1, .16); burst(e.x, cy, e.z, 0x2a2a2a, 12, 5, 1.1, .2); burst(e.x, cy, e.z, 0xffa040, 8, 6, .35, .08);
-  SFX.kill(); shake += e.type === 'brute' ? .3 : .08;
+  SFX.kill(); shake += e.type === 'brute' ? .3 : .08; conAdd('kills'); conAdd(e.type);
+  if (e.type === 'mine') explode(e.x, .4, e.z, 4, 90, 14);
   if (e.type === 'boss') {
     SFX.boom(); shake += 1.2; boomLight.position.set(e.x, 2, e.z); boomLight.intensity = 6;
     for (const k of ['hp', 'armor', 'ammo', 'ammo', 'grenade', 'medkit']) dropPickup(k, e.x + rand(-2.5, 2.5), e.z + rand(-2.5, 2.5));
@@ -1211,7 +1235,7 @@ function killEnemy(e) {
   }
 }
 function dropPickup(type, x, z, life = 28) { if (solid(x, z)) return; const g = buildPickup(type); g.position.set(x, 1, z); scene.add(g); pickups.push({ type, x, z, g, t: rand(0, 6), life }); }
-function explode(x, y, z, R, dmg) {
+function explode(x, y, z, R, dmg, pd) {
   SFX.boom(); shake += clamp(1.4 - Math.hypot(x - p.x, z - p.z) / 14, .1, 1.2);
   burst(x, y + .2, z, 0xff9a3d, 50, 13, .5, .16); burst(x, y + .2, z, 0xfff0c0, 16, 7, .3, .1); burst(x, y, z, 0x3a3a38, 34, 6, 1.4, .24, 5);
   boomLight.position.set(x, y + 1, z); boomLight.intensity = 5;
@@ -1219,7 +1243,7 @@ function explode(x, y, z, R, dmg) {
     if (d < R + e.r && los(x, y + .4, z, e.x, (e.y0 + e.y1) / 2, e.z)) hurtEnemy(e, dmg * clamp(1.15 - d / R, .2, 1), dx / (d || 1), dz / (d || 1), false, e.x, (e.y0 + e.y1) / 2, e.z); }
   for (const b of barrels.slice()) if (Math.hypot(b.x - x, b.z - z) < R) hurtBarrel(b, 999);
   const pdist = Math.hypot(p.x - x, p.z - z);
-  if (pdist < R && los(x, y + .4, z, p.x, p.y + 1, p.z)) hurtPlayer(dmg * .25 * (1 - pdist / R), x, z, true);
+  if (pdist < R && los(x, y + .4, z, p.x, p.y + 1, p.z)) pd !== undefined ? hurtPlayer(pd * (1 - pdist / R), x, z) : hurtPlayer(dmg * .25 * (1 - pdist / R), x, z, true);
 }
 function updateEnemies(dt) {
   const calm = M.passive;
@@ -1264,6 +1288,10 @@ function updateEnemies(dt) {
         eshot({ x: e.x + Math.cos(a) * side * .98, z: e.z - Math.sin(a) * side * .98 }, 1.5, p.x, p.y + 1.2, p.z, 18, 11, .3); SFX.eshot(vol(e.x, e.z)); } }
       const w = speed ? Math.sin(e.t * 4.5) * .45 : 0; e.P.legs[0].rotation.x = w; e.P.legs[1].rotation.x = -w;
       e.P.arms[0].rotation.x = e.P.arms[1].rotation.x = firing ? -.2 : .1;
+    } else if (e.type === 'mine') {
+      mx = tx; mz = tz; e.P.eye.visible = Math.sin(e.t * (e.fuse > 0 ? 40 : 6)) > 0;
+      if (e.fuse > 0) { speed = 0; e.fuse -= dt; if (e.fuse <= 0) { e.dead = true; scene.remove(e.g); explode(e.x, .4, e.z, 4.5, 90, 26); } }
+      else if (!calm && d < 1.9 && e.born >= 1) { e.fuse = .6; tone('square', 950, 950, .55, .1); }
     } else {
       const rage = e.hp < e.maxHp * .5; mx = tx; mz = tz; if (d < 9) speed = 0; if (rage) speed *= 1.4;
       e.y = e.fly + Math.sin(e.t * 1.4) * .25; e.g.rotation.z = Math.sin(e.t * .9) * .05; e.P.eye.visible = Math.sin(e.t * 8) > 0;
@@ -1344,7 +1372,7 @@ function update(dt) {
   for (const b of barrels) { const bx = p.x - b.x, bz = p.z - b.z, bd = Math.hypot(bx, bz) || .01, m = b.r + p.r; if (bd < m) moveEnt(p, bx / bd * (m - bd), bz / bd * (m - bd), p.r); }
   p.vy -= 20 * dt; p.y += p.vy * dt;
   if (p.y <= 0) { if (!p.onGround && p.vy < -4) { p.land = 1; SFX.land(); } p.y = 0; p.vy = 0; p.onGround = true; }
-  if (p.onGround) p.bob += Math.hypot(p.vx, p.vz) * dt * 1.5;
+  if (p.onGround) { const hv = Math.hypot(p.vx, p.vz); p.bob += hv * dt * 1.5; p.stepA = (p.stepA || 0) + hv * dt; if (p.stepA > 2.3) { p.stepA = 0; noise(.05, p.crouch > .5 ? .04 : .1, rand(380, 560)); } }
 
   p.cd -= dt;
   if (p.next) { p.raise -= dt * 7; if (p.raise <= 0) { p.raise = 0; VM[p.cur].g.visible = false; if (!p.quick) p.prev = p.cur; p.cur = p.next; p.next = null; VM[p.cur].g.visible = true; p.cd = Math.max(p.cd, 0); } }
@@ -1366,7 +1394,7 @@ function update(dt) {
   } else if (queue.length) { spawnT -= dt; if (spawnT <= 0 && enemies.length < 10) { if (spawnEnemy(queue[0])) queue.shift(); spawnT = Math.max(.7, 1.9 - wave * .06); } }
   else if (!enemies.length && state === 'play') {
     if (M.waves && wave >= M.waves) { score += 500; endGame('win'); }
-    else if (restT <= 0) { restT = 5; score += wave * 100; announce('Волна отбита', '+' + wave * 100 + ' очков. Собери припасы', '#86b25c'); }
+    else if (restT <= 0) { restT = 5; score += wave * 100; conAdd('waves'); announce('Волна отбита', '+' + wave * 100 + ' очков. Собери припасы', '#86b25c'); }
     else { restT -= dt; if (restT <= 0) nextWave(); }
   }
   updateEnemies(dt); updateShots(dt); updatePickups(dt);
